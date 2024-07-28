@@ -2,17 +2,15 @@ use std::fmt;
 use async_trait::async_trait;
 use sqlx::{Pool, Postgres, QueryBuilder};
 use sqlx::postgres::PgPoolOptions;
+use crate::metadata::Metadata;
 use crate::source::source::Source;
 use crate::utils::get_fqn_table;
 
-pub struct CrateDB {
-    pub(crate) test: u32,
-}
-
+pub struct CrateDB {}
 
 
 impl CrateDB {
-    pub(crate) fn get_query_builder_insert<'a>(&self, schema: &'a str, table_name: &'a str, columns: Vec<String>) -> QueryBuilder<'a, Postgres> {
+    pub(crate) fn get_query_builder_insert<'a>(&self, schema: &'a str, table_name: &'a str, columns: &'a Vec<String>) -> QueryBuilder<'a, Postgres> {
         let stmt = format!("INSERT INTO {} ({})",
                            get_fqn_table(&schema, &table_name),
                            columns.join(","));
@@ -32,7 +30,7 @@ impl Source for CrateDB {
     async fn get_pool(&self) -> Result<Self::PoolType, Self::ErrorType> {
         let pool = PgPoolOptions::new()
             .max_connections(5)
-            .connect("postgres://crate:crate@192.168.88.251:5432/postgres")
+            .connect("postgresql://postgres:postgres@192.168.88.251:5400/postgres")
             .await?;
         Ok(pool)
     }
@@ -61,7 +59,7 @@ impl Source for CrateDB {
         todo!()
     }
 
-    async fn migrate_table_to_cratedb(&self, table: &Self::TableType, cratedb: CrateDB) {
+    async fn migrate_table_to_cratedb(&self, schema: &str, table: &Self::TableType, cratedb: CrateDB, metadata: &mut Metadata) {
         todo!()
     }
 }
@@ -69,6 +67,6 @@ impl Source for CrateDB {
 
 impl fmt::Debug for CrateDB {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Hi")
+        write!(f, "TODO: ADD STRUCT DEFINITION")
     }
 }

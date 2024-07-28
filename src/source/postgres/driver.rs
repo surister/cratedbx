@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use mongodb::bson::Document;
 use sqlx::{Pool, Postgres, Row};
 use sqlx::postgres::PgPoolOptions;
+use crate::metadata::Metadata;
 use crate::sink::cratedb::driver::CrateDB;
 use crate::source::source::Source;
 
@@ -62,7 +63,7 @@ impl Source for PostgresSource {
 
 
 
-    async fn migrate_table_to_cratedb(&self, table: &Self::TableType, cratedb: CrateDB) {
+    async fn migrate_table_to_cratedb(&self, schema: &str, table: &Self::TableType, cratedb: CrateDB, metadata: &mut Metadata) {
         todo!()
     }
 }
