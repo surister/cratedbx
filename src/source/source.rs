@@ -18,6 +18,6 @@ pub trait Source {
     async fn get_database(&self, database: &str) -> Result<Self::DatabaseType, Self::ErrorType>;
     async fn get_table(&self, database: &str, table_name: &str) -> Result<Self::TableType, Self::ErrorType>;
     async fn migrate_table<T: Source>(&self, to: &T);
-    async fn insert_to<T: Source>(&self, schema: &str, table: &str, columns: &Vec<String>, items: &Vec<Self::RowType>, to: &T) {}
+    async fn insert_to<T: Source>(&self, schema: &str, table: &str, columns: &Vec<String>, items: &Vec<Self::RowType>, to: &T);
     async fn migrate_table_to_cratedb(&self, schema: &str, table: &Self::TableType, cratedb: CrateDB, metadata: &mut Metadata);
 }

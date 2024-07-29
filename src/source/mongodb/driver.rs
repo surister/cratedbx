@@ -171,6 +171,7 @@ impl Source for MongoDBSource {
             });
 
             query_builder.build().execute(&pool).await.expect("Could not send data to CrateDB on last batch");
+            metadata.print_step(format!("Sent batch of {:?}", &buffer.len()).as_str());
         }
 
         metadata.print_step(format!("Total records sent: {}", total_documents_sent).as_str());

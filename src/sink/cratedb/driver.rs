@@ -24,13 +24,13 @@ impl Source for CrateDB {
     type ErrorType = sqlx::Error;
     type ClientType = ();
     type DatabaseType = ();
-    type TableType = crate::source::postgres::driver::PgTable;
+    type TableType = ();
     type RowType = ();
 
     async fn get_pool(&self) -> Result<Self::PoolType, Self::ErrorType> {
         let pool = PgPoolOptions::new()
             .max_connections(5)
-            .connect("postgresql://postgres:postgres@192.168.88.251:5400/postgres")
+            .connect("")
             .await?;
         Ok(pool)
     }
@@ -56,6 +56,10 @@ impl Source for CrateDB {
     }
 
     async fn migrate_table<T: Source>(&self, to: &T) {
+        todo!()
+    }
+
+    async fn insert_to<T: Source>(&self, schema: &str, table: &str, columns: &Vec<String>, items: &Vec<Self::RowType>, to: &T) {
         todo!()
     }
 
