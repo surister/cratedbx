@@ -1,20 +1,21 @@
 use async_trait::async_trait;
-use mongodb::bson::Document;
-use sqlx::{Pool, Postgres, Row};
-use sqlx::postgres::PgPoolOptions;
+use futures::StreamExt;
+use sqlx::{Column, Error, Execute, Pool, Postgres, Row, TypeInfo};
+use sqlx::postgres::{PgPoolOptions, PgRow};
+
 use crate::metadata::Metadata;
 use crate::sink::cratedb::driver::CrateDB;
 use crate::source::source::Source;
 
-struct PostgresSource {}
-pub struct PgTable{}
+pub struct PostgresSource {}
+
 #[async_trait]
 impl Source for PostgresSource {
     type PoolType = Pool<Postgres>;
     type ErrorType = sqlx::Error;
     type ClientType = ();
     type DatabaseType = ();
-    type TableType = PgTable;
+    type TableType = String;
     type RowType = ();
 
     async fn get_pool(&self) -> Result<Self::PoolType, Self::ErrorType> {
@@ -61,9 +62,59 @@ impl Source for PostgresSource {
         todo!()
     }
 
+    async fn insert_to<T: Source>(&self, schema: &str, table: &str, columns: &Vec<String>, items: &Vec<Self::RowType>, to: &T) {
+        todo!()
+    }
 
 
     async fn migrate_table_to_cratedb(&self, schema: &str, table: &Self::TableType, cratedb: CrateDB, metadata: &mut Metadata) {
-        todo!()
+        let pool = self.get_pool().await.unwrap();
+        let cratedb_pool = cratedb.get_pool().await.unwrap();
+        let mut total_documents_sent = 0;
+
+        let query_1 = format!("SELECT * FROM {}.{}", &schema, &table);
+        let mut rows_stream = sqlx::query(&query_1).fetch(&pool);
+        let mut buffer: Vec<PgRow> = vec![];
+
+        metadata.print_step("Starting connections");
+        while let Some(row) = rows_stream.next().await {
+            match row {
+                Ok(row_obj) => {
+                    let batch_size = 5000;
+                    let columns = &row_obj.columns().iter().map(|x| String::from(x.name())).collect();
+                    let mut query_builder = cratedb.get_query_builder_insert("doc", table, &columns);
+                    if &buffer.len() == &batch_size {
+                        query_builder.push_values(
+                            &buffer, |mut b, rr: &PgRow| {
+                                for col in rr.columns() {
+                                    let name = col.name();
+                                    let type_info = col.type_info();
+                                    let type_name = type_info.name();
+
+                                    match col.type_info().name() {
+                                        "TEXT" => {
+                                            let val: Result<String, Error> = rr.try_get(col.name());
+                                            match val {
+                                                Ok(v) => b.push_bind(v),
+                                                Err(e) => b.push_bind::<Option<String>>(None)
+                                            }
+                                        },
+                                        _ => continue
+                                    };
+                                };
+                            },
+                        );
+                        query_builder.build().execute(&cratedb_pool).await.expect("TODO: panic message");
+                        metadata.print_step(format!("Sent batch of {}", &buffer.len()).as_str());
+                        total_documents_sent += &buffer.len();
+                        buffer.clear();
+                    }
+                    buffer.push(row_obj);
+                }
+                _ => {}
+            }
+        }
+        metadata.print_step(format!("Total records sent: {}", total_documents_sent).as_str());
+        metadata.print_step(format!("Rows per seconds: {}", (total_documents_sent as u128) / metadata.elapsed().as_millis() * 1000).as_str());
     }
 }
