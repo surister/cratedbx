@@ -1,8 +1,9 @@
 use std::time::{Duration, Instant};
+use memory_stats::memory_stats;
+
 pub(crate) struct Metadata {
     _start: Option<Instant>,
     _last: Option<Duration>,
-    total: u32,
 }
 
 impl Metadata {
@@ -13,14 +14,16 @@ impl Metadata {
         Metadata {
             _start: None,
             _last: Some(Duration::new(0, 0)),
-            total: 0,
         }
     }
 
     // Todo: Add new param: "track_time = false" to disable printing the time it took since the last print_step
     pub fn print_step(&mut self, message: &str) {
+        let base: usize = 10;
         println!(
-            "{message}, took: {:?}", self._start.unwrap().elapsed() - self._last.unwrap()
+            "{message}, took: {:?} - Current mem use: {:?}Mb",
+            self._start.unwrap().elapsed() - self._last.unwrap(),
+            (memory_stats().unwrap().physical_mem) / base.pow(6),
         );
         self._last = Some(self._start.unwrap().elapsed());
     }
