@@ -28,6 +28,6 @@ pub trait Source {
 
 #[async_trait]
 pub trait Sink {
-    fn build_insert_values_statement(&self, schema: &str, table_name: &str) -> QueryBuilder<Postgres>;
-    async fn send_batch(&self, schema: &str, table_name: &str, buffer: Vec<Vec<NormalizedRow>>);
+    fn build_insert_values_statement(&self, schema: &str, table_name: &str, columns: &Vec<String>) -> QueryBuilder<Postgres>;
+    async fn send_batch(&self, schema: &str, table_name: &str, columns: &Vec<String>,buffer: Vec<Vec<NormalizedRow>>);
 }
