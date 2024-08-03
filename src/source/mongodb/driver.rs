@@ -77,10 +77,10 @@ impl Source for MongoDBSource {
 
         let mut buffer: Vec<Vec<NormalizedRow>> = vec![];
         let mut columns: Vec<String> = vec![];
+        let mut last_columns: Vec<String> = vec![];
 
         let mut batch_document_len: Option<usize> = None;
         let ignored_columns = [""];
-
 
         metadata.print_step("Starting connection to MongoDB");
 
@@ -95,19 +95,23 @@ impl Source for MongoDBSource {
                 Some(_) => (),
                 None => batch_document_len = Some(document.len())
             }
+            let has_doc_len_changed = &batch_document_len.unwrap() != &document.len().clone();
 
-            // // column is empty on new batches.
+            // column is empty on new batches.
             if columns.is_empty() {
                columns  = document.keys().map(|x| String::from(x)).collect();
             }
 
+            if has_doc_len_changed {
+                // This fixes getting the columns for the last batch.
+                last_columns = document.keys().map(|x| String::from(x)).collect();
+            }
 
-            let has_doc_len_changed = &batch_document_len.unwrap() != &document.len().clone();
-            let normalized = self.row_to_normalized_row(document).await;
+            let normalized_row = self.row_to_normalized_row(document).await;
 
             if has_doc_len_changed || &buffer.len() == &batch_size {
                 let documents_in_batch: usize = buffer.len();
-                cratedb.send_batch(&schema, &table.name(), buffer).await;
+                cratedb.send_batch(&schema, &table.name(), &columns, buffer).await;
 
                 total_documents_sent += &documents_in_batch;
                 metadata.print_step(format!("Sent batch of {:?}", &documents_in_batch).as_str());
@@ -115,58 +119,16 @@ impl Source for MongoDBSource {
                 // Clear up all temporal containers for the next iteration.
                 buffer = vec![];
                 batch_document_len = None;
-
-
                 columns.clear();
             }
-            buffer.push(normalized);
+            buffer.push(normalized_row);
         }
 
         // There is still a last batch.
-        // Documents of the last batch is guaranteed to be of the same length.
+        // Rows of the last batch are guaranteed to be of the same length.
         if !buffer.is_empty() {
-            println!("Second send, {:?}", &buffer.len());
-            // cratedb.send_batch(&schema, &table.name(), buffer).await
+            cratedb.send_batch(&schema, &table.name(), &last_columns, buffer).await
         }
-        // if !buffer.is_empty() {
-        //     let first_doc: Document = buffer.first().unwrap().clone();
-        //     columns = first_doc.keys().map(|x| String::from(x)).collect();
-        //
-        //     let mut query_builder = cratedb.get_query_builder_insert(schema, table.name(), &columns).await;
-        //     query_builder.push_values(&buffer, |mut b, document: &Document| {
-        //         for (_, doc) in document {
-        //             match doc {
-        //                 Bson::Double(f) => b.push_bind(f),
-        //                 Bson::Int32(int) => b.push_bind(int),
-        //                 Bson::Int64(int) => b.push_bind(int),
-        //                 Bson::String(s) => b.push_bind(s),
-        //                 Bson::Boolean(s) => b.push_bind(s),
-        //                 Bson::DateTime(d) => b.push_bind(d.try_to_rfc3339_string().unwrap()),
-        //                 Bson::Array(a) => {
-        //                     match a.first().unwrap() {
-        //                         Bson::Int32(u) => {
-        //                             let x: Vec<i32> = bson::from_bson(doc.clone()).expect("TODO: panic message - i32 vector");
-        //                             b.push_bind(x);
-        //                         }
-        //                         Bson::Double(_) => {
-        //                             let x: Vec<f32> = bson::from_bson(doc.clone()).expect("TODO: panic message - double vector");
-        //                             b.push_bind(x);
-        //                         }
-        //                         _ => {
-        //                             let x: Vec<String> /* Type */ = bson::from_bson(doc.clone()).expect("TODO: panic message - string vector");
-        //                             b.push_bind(x);
-        //                         }
-        //                     }
-        //                     continue;
-        //                 }
-        //                 _ => b.push_bind(doc.to_string()),
-        //             };
-        //         }
-        //     });
-        //
-        //     query_builder.build().execute(&pool).await.expect("Could not send data to CrateDB on last batch");
-        //     metadata.print_step(format!("Sent batch of {:?}", &buffer.len()).as_str());
-        // }
 
         metadata.print_step(format!("Total records sent: {}", total_documents_sent).as_str());
         metadata.print_step(format!("Rows per seconds: {}", (total_documents_sent as u128) / metadata.elapsed().as_millis() * 1000).as_str());

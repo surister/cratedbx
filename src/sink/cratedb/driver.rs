@@ -16,15 +16,15 @@ enum InsertStrategy {
 }
 #[async_trait]
 impl Sink for CrateDB {
-    fn build_insert_values_statement(&self, schema: &str, table_name: &str) -> QueryBuilder<Postgres> {
-        let stmt = format!("INSERT INTO {} ",
+        fn build_insert_values_statement(&self, schema: &str, table_name: &str, columns: &Vec<String>) -> QueryBuilder<Postgres> {
+        let stmt = format!("INSERT INTO {} ({}) ",
                            get_fqn_table(&schema, &table_name),
-                           );
+                           columns.join(","));
         return QueryBuilder::new(stmt);
     }
 
-    async fn send_batch(&self, schema: &str, table_name: &str, buffer: Vec<Vec<NormalizedRow>>) {
-        let mut query_builder = self.build_insert_values_statement(&schema, &table_name);
+    async fn send_batch(&self, schema: &str, table_name: &str, columns: &Vec<String>, buffer: Vec<Vec<NormalizedRow>>) {
+        let mut query_builder = self.build_insert_values_statement(&schema, &table_name, &columns);
 
         query_builder.push_values(&buffer, |mut separated, x| {
             for value in x {
@@ -38,7 +38,6 @@ impl Sink for CrateDB {
             }
         });
         let pool = self.get_pool().await.expect("Couldn't connect to CrateDB");
-        
         query_builder.build().execute(&pool).await.expect("TODO: panic message");
     }   
 }
