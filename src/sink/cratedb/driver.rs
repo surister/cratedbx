@@ -38,7 +38,7 @@ impl Sink for CrateDB {
             }
         });
         let pool = self.get_pool().await.expect("Couldn't connect to CrateDB");
-        query_builder.build().execute(&pool).await.expect("TODO: panic message");
+        query_builder.build().execute(&pool).await.expect("Could not send batch");
     }   
 }
 
@@ -62,13 +62,9 @@ impl Source for CrateDB {
     async fn get_client(&self) -> Result<Self::ClientType, Self::ErrorType> {
         todo!()
     }
-    async fn row_to_normalized_row(&self, row: Self::RowType) -> Vec<NormalizedRow> {
-        todo!()
-    }
     async fn list_databases(&self) -> Result<Vec<String>, Self::ErrorType> {
         todo!()
     }
-
     async fn list_tables(&self, database: &str) -> Result<Vec<String>, Self::ErrorType> {
         todo!()
     }
@@ -93,7 +89,11 @@ impl Source for CrateDB {
         todo!()
     }
 
-    async fn migrate_table_to_cratedb(&self, schema: &str, table: &Self::TableType, cratedb: CrateDB, metadata: &mut Metadata) {
+    async fn migrate_table_to_cratedb(&self, schema: &str, table: &Self::TableType, ignored_columns: Vec<&str>, cratedb: CrateDB, metadata: &mut Metadata) {
+        todo!()
+    }
+
+    async fn row_to_normalized_row(&self, row: Self::RowType) -> Vec<NormalizedRow> {
         todo!()
     }
 }

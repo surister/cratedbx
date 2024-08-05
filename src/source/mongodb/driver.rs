@@ -1,11 +1,15 @@
 use async_trait::async_trait;
 use mongodb::bson::{Bson, doc, Document};
 use mongodb::{Client, Collection, Database};
+
 use crate::metadata::Metadata;
 use crate::sink::cratedb::driver::CrateDB;
 use crate::source::source::{Sink, Source};
+
 #[derive(Debug)]
-pub struct MongoDBSource;
+pub struct MongoDBSource {
+    pub(crate) uri: String,
+}
 
 #[derive(Debug)]
 pub(crate) enum NormalizedRow {
@@ -13,13 +17,34 @@ pub(crate) enum NormalizedRow {
     I64(i64),
     Double32(f32),
     Double64(f64),
+    Double128(f64),
     Str(Box<str>),
     String(String),
+    Vec(Vec<NormalizedRow>),
+    VecString(Vec<String>),
+    VecI32(Vec<i32>),
     None,
 }
 struct Buffer {
     columns: Option<Vec<String>>,
     buffer: Vec<Vec<NormalizedRow>>,
+}
+
+fn bson_to_normalized_row(row: Bson) -> NormalizedRow {
+    match row {
+        Bson::Double(v) => NormalizedRow::Double64(v),
+        Bson::String(v) => NormalizedRow::String(v),
+        Bson::Int32(v) => NormalizedRow::I32(v),
+        Bson::Int64(v) => NormalizedRow::I64(v),
+        Bson::Decimal128(v) => NormalizedRow::Double128(v.to_string().parse().unwrap()),
+        Bson::ObjectId(v) => NormalizedRow::String(v.to_string()),
+        Bson::Null => NormalizedRow::None,
+        Bson::DateTime(v) => NormalizedRow::I64(v.timestamp_millis()),
+        // Bson::Array(v) => v.into_iter().map(|x| bson_to_normalized_row(x)).collect(),
+        _ => {
+            NormalizedRow::String(row.to_string())
+        }
+    }
 }
 #[async_trait]
 impl Source for MongoDBSource {
@@ -34,9 +59,7 @@ impl Source for MongoDBSource {
         todo!() // MongoDB handles pooling internally.
     }
     async fn get_client(&self) -> Result<Self::ClientType, Self::ErrorType> {
-        let client_uri = "";
-
-        let client = Client::with_uri_str(&client_uri).await;
+        let client = Client::with_uri_str(&self.uri).await;
         return Ok(client.unwrap());
     }
     async fn list_databases(&self) -> Result<Vec<String>, Self::ErrorType> {
@@ -69,7 +92,7 @@ impl Source for MongoDBSource {
         todo!()
     }
 
-    async fn migrate_table_to_cratedb(&self, schema: &str, table: &Collection<Document>, cratedb: CrateDB, metadata: &mut Metadata) {
+    async fn migrate_table_to_cratedb(&self, schema: &str, table: &Collection<Document>, ignored_columns: Vec<&str>,cratedb: CrateDB, metadata: &mut Metadata) {
         println!("Starting migrating table {:?} to CrateDB {:?}", table.name(), cratedb);
         let batch_size: usize = 5000;
         let mut total_documents_sent = 0;
@@ -80,14 +103,13 @@ impl Source for MongoDBSource {
         let mut last_columns: Vec<String> = vec![];
 
         let mut batch_document_len: Option<usize> = None;
-        let ignored_columns = [""];
 
         metadata.print_step("Starting connection to MongoDB");
 
         while cursor.advance().await.expect("Could not advance cursor; maybe connection was lost") {
             let mut document = cursor.deserialize_current().unwrap();
 
-            for column in ignored_columns {
+            for column in &ignored_columns {
                 document.remove(column);
             }
 
@@ -99,7 +121,7 @@ impl Source for MongoDBSource {
 
             // column is empty on new batches.
             if columns.is_empty() {
-               columns  = document.keys().map(|x| String::from(x)).collect();
+                columns = document.keys().map(|x| String::from(x)).collect();
             }
 
             if has_doc_len_changed {
@@ -136,15 +158,8 @@ impl Source for MongoDBSource {
 
     async fn row_to_normalized_row(&self, row: Self::RowType) -> Vec<NormalizedRow> {
         let mut rows: Vec<NormalizedRow> = Vec::new();
-        for (_, doc) in row {
-            match doc {
-                Bson::Double(v) => rows.push(NormalizedRow::Double64(v)),
-                Bson::String(v) => rows.push(NormalizedRow::String(v)),
-                Bson::Int32(v) => rows.push(NormalizedRow::I32(v)),
-                Bson::Int64(v) => rows.push(NormalizedRow::I64(v)),
-                Bson::DateTime(v) => rows.push(NormalizedRow::String(v.try_to_rfc3339_string().unwrap())),
-                _ => rows.push(NormalizedRow::String(doc.to_string()))
-            }
+        for (_, value) in row {
+            rows.push(bson_to_normalized_row(value))
         }
         return rows;
     }

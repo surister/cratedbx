@@ -22,7 +22,7 @@ pub trait Source {
     async fn migrate_table<T: Source>(&self, to: &T);
     async fn insert_to<T: Source>(&self, schema: &str, table: &str, columns: &Vec<String>, items: &Vec<Self::RowType>, to: &T);
     async fn build_query<T: Sink>(&self, schema: &str, table: &str, columns: &Vec<String>, items: &Vec<Self::RowType>, sink: &T);
-    async fn migrate_table_to_cratedb(&self, schema: &str, table: &Self::TableType, cratedb: CrateDB, metadata: &mut Metadata);
+    async fn migrate_table_to_cratedb(&self, schema: &str, table: &Self::TableType, ignored_columns: Vec<&str>, cratedb: CrateDB, metadata: &mut Metadata);
     async fn row_to_normalized_row(&self, row: Self::RowType) -> Vec<crate::source::mongodb::driver::NormalizedRow>;
 }
 

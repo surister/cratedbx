@@ -75,7 +75,7 @@ impl Source for PostgresSource {
     }
 
 
-    async fn migrate_table_to_cratedb(&self, schema: &str, table: &Self::TableType, cratedb: CrateDB, metadata: &mut Metadata) {
+    async fn migrate_table_to_cratedb(&self, schema: &str, table: &Self::TableType,ignored_columns: Vec<&str>, cratedb: CrateDB, metadata: &mut Metadata) {
         let pool = self.get_pool().await.unwrap();
         let cratedb_pool = cratedb.get_pool().await.unwrap();
         let mut total_documents_sent = 0;
