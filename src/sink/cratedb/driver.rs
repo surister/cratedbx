@@ -1,37 +1,76 @@
 use std::fmt;
 use async_trait::async_trait;
+use mongodb::bson::Document;
+use mongodb::Collection;
+use serde_json::json;
 use sqlx::{Pool, Postgres, QueryBuilder};
 use sqlx::postgres::PgPoolOptions;
 use crate::metadata::Metadata;
-use crate::source::mongodb::driver::NormalizedRow;
+use crate::source::mongodb::driver::{NormalizedRow, StringRow};
 use crate::source::source::{Sink, Source};
 use crate::utils::get_fqn_table;
 
 pub struct CrateDB {}
 
-enum InsertStrategy {
-    PgSingleInserts,
-    PgValuesInserts,
-    HttpBulkArgs,
-}
 #[async_trait]
 impl Sink for CrateDB {
-        fn build_insert_values_statement(&self, schema: &str, table_name: &str, columns: &Vec<String>) -> QueryBuilder<Postgres> {
+    fn build_insert_values_statement(&self, schema: &str, table_name: &str, columns: &Vec<String>) -> QueryBuilder<Postgres> {
         let stmt = format!("INSERT INTO {} ({}) ",
                            get_fqn_table(&schema, &table_name),
                            columns.join(","));
         return QueryBuilder::new(stmt);
     }
 
+    fn get_bulk_args_query(&self, schema: &str, table_name: &str, columns: &Vec<String>) -> String {
+        let mut interpolation = "?,".repeat(columns.len() - 1);
+        interpolation.push('?');
+
+        let stmt = format!("INSERT INTO {} ({}) VALUES ({})",
+                           get_fqn_table(&schema, &table_name),
+                           columns.join(","),
+                            interpolation
+        );
+        stmt
+    }
+
+    async fn send_batch_http(&self, schema: &str, table_name: &str, columns: &Vec<String>, buffer: Vec<Vec<StringRow>>) {
+        let query = self.get_bulk_args_query(&schema, &table_name, &columns);
+
+        let body = json!({
+           "stmt": query, "bulk_args": &buffer
+        });
+
+        let client = reqwest::Client::new();
+        let res = client.post("http://crate@192.168.88.251:4200/_sql")
+            .json(&body)
+            .send()
+            .await;
+        match res {
+            Ok(r) => (),//println!("{:?}", r.text().await),
+            Err(e) => println!("{:?}", e)
+        }
+    }
     async fn send_batch(&self, schema: &str, table_name: &str, columns: &Vec<String>, buffer: Vec<Vec<NormalizedRow>>) {
         let mut query_builder = self.build_insert_values_statement(&schema, &table_name, &columns);
 
         query_builder.push_values(&buffer, |mut separated, x| {
             for value in x {
                 match value {
+                    NormalizedRow::None => separated.push_bind::<Option<String>>(None),
+                    NormalizedRow::Bool(v) => separated.push_bind(v),
                     NormalizedRow::String(v) => separated.push_bind(v),
-                    NormalizedRow::Double64(v) => separated.push_bind(v),
+                    NormalizedRow::I16(v) => separated.push_bind(v),
+                    NormalizedRow::I32(v) => separated.push_bind(v),
+                    NormalizedRow::I64(v) => separated.push_bind(v),
                     NormalizedRow::Double32(v) => separated.push_bind(v),
+                    NormalizedRow::Double64(v) => separated.push_bind(v),
+                    NormalizedRow::VecF32(v) => separated.push_bind(v),
+                    NormalizedRow::VecF64(v) => separated.push_bind(v),
+                    NormalizedRow::VecI32(v) => separated.push_bind(v),
+                    NormalizedRow::VecI64(v) => separated.push_bind(v),
+                    NormalizedRow::VecString(v) => separated.push_bind(v),
+
+
                     _ => continue
                 };
 
@@ -77,15 +116,8 @@ impl Source for CrateDB {
         todo!()
     }
 
-    async fn migrate_table<T: Source>(&self, to: &T) {
-        todo!()
-    }
 
-    async fn insert_to<T: Source>(&self, schema: &str, table: &str, columns: &Vec<String>, items: &Vec<Self::RowType>, to: &T) {
-        todo!()
-    }
-
-    async fn build_query<T: Sink>(&self, schema: &str, table: &str, columns: &Vec<String>, items: &Vec<Self::RowType>, sink: &T) {
+    async fn migrate_table_to_cratedb_pg(&self, schema: &str, table: &Collection<Document>, ignored_columns: Vec<&str>, cratedb: CrateDB, metadata: &mut Metadata) {
         todo!()
     }
 
@@ -94,6 +126,10 @@ impl Source for CrateDB {
     }
 
     async fn row_to_normalized_row(&self, row: Self::RowType) -> Vec<NormalizedRow> {
+        todo!()
+    }
+
+    fn row_to_vec_str(&self, row: Self::RowType) -> Vec<StringRow> {
         todo!()
     }
 }
