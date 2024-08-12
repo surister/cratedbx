@@ -1,0 +1,23 @@
+CREATE TABLE IF NOT EXISTS `simple_array` (
+  `id` TEXT,
+  `txt` TEXT,
+  `ip` VARCHAR(15),
+  `i16` SMALLINT,
+  `u16` SMALLINT,
+  `i32` INTEGER,
+  `u32` INTEGER,
+  `i32_from_text` INTEGER,
+  `f32` REAL,
+  `f64` DOUBLE PRECISION,
+  `bool` BOOLEAN,
+  `null_` TEXT,
+  `array_text` JSON,
+  `array_i32` JSON,
+  `array_u32` JSON,
+  `empty_array` JSON,
+  `datetime` DATETIME,
+  `datetime_2` DATETIME,
+  `obj` JSON,
+  `vector_float` JSON,
+  `vector_float_simple` JSON
+);

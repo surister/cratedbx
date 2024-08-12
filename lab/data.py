@@ -53,7 +53,7 @@ array = {
     # 'empty_nested_array_5': [
     #     [1, 2, 3], [1, 2, 3, 4, 5, 6]
     # ],
-    'array_mixed': [12345, "678919"],
+    # 'array_mixed': [12345, "678919"],
     'vector_float_simple': [0.1],
     'vector_float': [0.23423423] * 2048,
     'array_i32': [-123456, -654321],

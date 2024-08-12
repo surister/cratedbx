@@ -1,10 +1,14 @@
-use std::fmt;
+use std::{fmt};
+
 use async_trait::async_trait;
+
 use mongodb::bson::Document;
 use mongodb::Collection;
 use serde_json::json;
+
 use sqlx::{Pool, Postgres, QueryBuilder};
 use sqlx::postgres::PgPoolOptions;
+
 use crate::metadata::Metadata;
 use crate::source::mongodb::driver::{NormalizedRow, StringRow};
 use crate::source::source::{Sink, Source};
@@ -46,7 +50,7 @@ impl Sink for CrateDB {
             .send()
             .await;
         match res {
-            Ok(r) => (),//println!("{:?}", r.text().await),
+            Ok(r) => (),
             Err(e) => println!("{:?}", e)
         }
     }
@@ -69,8 +73,6 @@ impl Sink for CrateDB {
                     NormalizedRow::VecI32(v) => separated.push_bind(v),
                     NormalizedRow::VecI64(v) => separated.push_bind(v),
                     NormalizedRow::VecString(v) => separated.push_bind(v),
-
-
                     _ => continue
                 };
 
@@ -97,7 +99,6 @@ impl Source for CrateDB {
             .await?;
         Ok(pool)
     }
-
     async fn get_client(&self) -> Result<Self::ClientType, Self::ErrorType> {
         todo!()
     }
@@ -107,28 +108,21 @@ impl Source for CrateDB {
     async fn list_tables(&self, database: &str) -> Result<Vec<String>, Self::ErrorType> {
         todo!()
     }
-
     async fn get_database(&self, database: &str) -> Result<Self::DatabaseType, Self::ErrorType> {
         todo!()
     }
-
     async fn get_table(&self, database: &str, table_name: &str) -> Result<Self::TableType, Self::ErrorType> {
         todo!()
     }
-
-
     async fn migrate_table_to_cratedb_pg(&self, schema: &str, table: &Collection<Document>, ignored_columns: Vec<&str>, cratedb: CrateDB, metadata: &mut Metadata) {
         todo!()
     }
-
     async fn migrate_table_to_cratedb(&self, schema: &str, table: &Self::TableType, ignored_columns: Vec<&str>, cratedb: CrateDB, metadata: &mut Metadata) {
         todo!()
     }
-
     async fn row_to_normalized_row(&self, row: Self::RowType) -> Vec<NormalizedRow> {
         todo!()
     }
-
     fn row_to_vec_str(&self, row: Self::RowType) -> Vec<StringRow> {
         todo!()
     }

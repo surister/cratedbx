@@ -10,7 +10,7 @@ serde = "1.0.204"
 tokio = { version = "1.0.0", features = ["rt", "rt-multi-thread", "macros"] }
 tokio-postgres = { version = "0.7.10", features = ["array-impls"] }
 chrono = "0.4.38"
-sqlx = { version = "0.7.4", features = ["postgres", "runtime-tokio", "ipnetwork", "time", "chrono"] }
+sqlx = { version = "0.8.0", features = ["postgres", "mysql", "json", "bit-vec", "runtime-tokio", "ipnetwork", "time", "chrono"] }
 indexmap = "2.2.6"
 log = "0.4.22"
 serde_json = "1.0.120"

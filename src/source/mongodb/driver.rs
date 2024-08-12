@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use mongodb::bson::{Bson, doc, Document};
 use mongodb::{Client, Collection, Database};
 
-use serde::{Deserialize, Serialize};
+use serde::{Serialize};
 
 use crate::metadata::Metadata;
 use crate::sink::cratedb::driver::CrateDB;
@@ -22,8 +22,6 @@ pub(crate) enum NormalizedRow {
     I64(i64),
     Double32(f32),
     Double64(f64),
-    Double128(f64),
-    Str(Box<str>),
     String(String),
     VecString(Vec<String>),
     VecI32(Vec<i32>),
@@ -51,7 +49,7 @@ fn bson_to_normalized_row(row: Bson) -> NormalizedRow {
         Bson::String(v) => NormalizedRow::String(v),
         Bson::Int32(v) => NormalizedRow::I32(v),
         Bson::Int64(v) => NormalizedRow::I64(v),
-        Bson::Decimal128(v) => NormalizedRow::Double128(v.to_string().parse().unwrap()),
+        Bson::Decimal128(v) => NormalizedRow::Double64(v.to_string().parse().unwrap()),
         Bson::ObjectId(v) => NormalizedRow::String(v.to_string()),
         Bson::Null => NormalizedRow::None,
         Bson::Array(v) => {
@@ -126,11 +124,6 @@ fn bson_to_string(row: Bson) -> StringRow {
     }
 }
 
-#[derive(Debug, Deserialize)]
-struct MyDocument {
-    bulk_args: Vec<String>,
-}
-type BufferType = Vec<Vec<String>>;
 #[async_trait]
 impl Source for MongoDBSource {
     type PoolType = (); // Placeholder type, replace it with an actual MongoDB pool type
@@ -208,7 +201,7 @@ impl Source for MongoDBSource {
 
             if has_doc_len_changed || &buffer.len() == &batch_size {
                 let documents_in_batch: usize = buffer.len();
-                cratedb.send_batch(&schema, &table.name(), &columns, buffer).await;
+                // cratedb.send_batch(&schema, &table.name(), &columns, buffer).await;
 
                 total_documents_sent += &documents_in_batch;
                 metadata.print_step(format!("Sent batch of {:?}", &documents_in_batch).as_str());
@@ -226,7 +219,7 @@ impl Source for MongoDBSource {
         if !buffer.is_empty() {
             let documents_in_batch: usize = buffer.len();
             total_documents_sent += &documents_in_batch;
-            cratedb.send_batch(&schema, &table.name(), &last_columns, buffer).await
+            // cratedb.send_batch(&schema, &table.name(), &last_columns, buffer).await
         }
 
         metadata.print_step(format!("Total records sent: {}", total_documents_sent).as_str());
