@@ -6,7 +6,7 @@ use mongodb::bson::Document;
 use mongodb::Collection;
 use serde_json::json;
 
-use sqlx::{Pool, Postgres, QueryBuilder};
+use sqlx::{Executor, Pool, Postgres, QueryBuilder, Row};
 use sqlx::postgres::PgPoolOptions;
 
 use crate::metadata::Metadata;
@@ -14,6 +14,7 @@ use crate::source::mongodb::driver::{NormalizedRow, StringRow};
 use crate::source::source::{Sink, Source};
 use crate::utils::get_fqn_table;
 
+#[derive(Copy, Clone)]
 pub struct CrateDB {}
 
 #[async_trait]
@@ -73,7 +74,6 @@ impl Sink for CrateDB {
                     NormalizedRow::VecI32(v) => separated.push_bind(v),
                     NormalizedRow::VecI64(v) => separated.push_bind(v),
                     NormalizedRow::VecString(v) => separated.push_bind(v),
-                    _ => continue
                 };
 
             }
@@ -106,7 +106,29 @@ impl Source for CrateDB {
         todo!()
     }
     async fn list_tables(&self, database: &str) -> Result<Vec<String>, Self::ErrorType> {
-        todo!()
+        let pool = self.get_pool().await.unwrap();
+        let query = format!(
+            "
+            SELECT
+              table_name
+            FROM
+              information_schema.tables
+            WHERE
+              table_schema = '{}'
+              ", database
+        );
+        let result = pool.fetch_all(&*query).await;
+
+        match result {
+            Ok(row) => {
+                let table_vec: Result<Vec<String>, sqlx::Error> = row.iter().map(|row|row.try_get(0)).collect();
+                match table_vec {
+                    Ok(result) => Ok(result),
+                    _=> panic!("Couldn't deserialize tables")
+                }
+            },
+            Err(_) => Ok(vec![])
+        }
     }
     async fn get_database(&self, database: &str) -> Result<Self::DatabaseType, Self::ErrorType> {
         todo!()
