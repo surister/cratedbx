@@ -20,3 +20,7 @@ reqwest = { version = "0.12.5", features = ["json"] }
 flamegraph = "0.6.5"
 cargo-heaptrack = "0.1.0"
 time = "0.3.36"
+
+[dev-dependencies]
+testcontainers = { version = "0.21.1", features = ["reqwest"] }
+testcontainers-modules = { version = "0.9.0", features = ["postgres"] }
