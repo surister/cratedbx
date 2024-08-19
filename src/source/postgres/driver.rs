@@ -156,6 +156,14 @@ impl Source for PostgresSource {
             }
             buffer.push(normalized_row);
         }
+
+        if !buffer.is_empty() {
+            let buffer_len = &buffer.len();
+            cratedb.send_batch("doc", &table, &columns, buffer).await;
+            metadata.print_step(format!("Sent batch of {}", &buffer_len).as_str());
+            total_documents_sent += buffer_len;
+;
+        }
         metadata.print_step(format!("Total records sent: {}", total_documents_sent).as_str());
         metadata.print_step(format!("Rows per seconds: {}", (total_documents_sent as u128) / metadata.elapsed().as_millis() * 1000).as_str());
     }
