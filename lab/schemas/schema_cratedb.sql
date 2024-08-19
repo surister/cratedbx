@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS "doc"."simple_array" (
+CREATE TABLE IF NOT EXISTS "doc"."data" (
    "id" TEXT,
    "txt" TEXT,
    "ip" IP,

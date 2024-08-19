@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS `simple_array` (
+CREATE TABLE IF NOT EXISTS `data` (
   `id` TEXT,
   `txt` TEXT,
   `ip` VARCHAR(15),
