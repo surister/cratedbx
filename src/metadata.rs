@@ -17,7 +17,7 @@ impl Metadata {
         }
     }
 
-    // Todo: Add new param: "track_time = false" to disable printing the time it took since the last print_step
+
     pub fn print_step(&mut self, message: &str) {
         let base: usize = 10;
         println!(

@@ -1,56 +1,52 @@
 use std::collections::HashSet;
 use std::net::IpAddr;
 use async_trait::async_trait;
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{NaiveDateTime};
 use futures::StreamExt;
 use mongodb::bson::Document;
 use mongodb::Collection;
 use sqlx::{Column, Error, Pool, Postgres, Row, TypeInfo};
 
 use sqlx::postgres::{PgPoolOptions, PgRow};
-
+use crate::experiment::data::CValue;
 use crate::metadata::Metadata;
 use crate::sink::cratedb::driver::CrateDB;
-use crate::source::mongodb::driver::{NormalizedRow, StringRow};
+use crate::source::mongodb::driver::{StringRow};
 use crate::source::source::{Sink, Source};
 
 macro_rules! pg2normalized {
     ($row:expr, $name:expr, $type_name:ty, $result_type:expr) => {
         {
             let val: Result<$type_name, sqlx::Error> = $row.try_get($name);
-            let result: NormalizedRow;
+            let result: CValue;
 
                 match val {
                     Ok(v) => {
                         result = $result_type(v);
                     }
-                    Err(_) => result = NormalizedRow::None
+                    Err(_) => result = CValue::None
                 }
-
             result
         }
-
     };
         ($row:expr, $name:expr, $type_name:ty, $result_type:expr, $to_string:expr) => {
         {
             let val: Result<$type_name, Error> = $row.try_get($name);
-            let result: NormalizedRow;
+            let result: CValue;
 
                 match val {
                     Ok(v) => {
                         result = $result_type($to_string(v));
                     },
-                    Err(_) => result = NormalizedRow::None
+                    Err(_) => result = CValue::None
                 }
-
             result
         }
-
     };
 }
 
 pub struct PostgresSource {
-    pub(crate) uri: String
+    pub(crate) uri: String,
 }
 
 #[async_trait]
@@ -75,12 +71,14 @@ impl Source for PostgresSource {
     }
     async fn list_databases(&self) -> Result<Vec<String>, Self::ErrorType> {
         println!("Listing databases");
+
         let pool: Self::PoolType = self.get_pool().await.unwrap();
         let result = sqlx::query("SELECT datname as name FROM pg_database WHERE datistemplate = false").fetch_all(&pool).await;
-        match result {
+
+        match result { 
             Ok(result) => {
                 let tables: Vec<String> = result.iter().map(|row| row.try_get("name").expect("Column not found, does the query return a column called name")).collect();
-                return Ok(tables);
+                Ok(tables)
             }
             Err(e) => {
                 println!("Error - {:?}", e);
@@ -100,6 +98,10 @@ impl Source for PostgresSource {
         todo!()
     }
 
+    async fn count(&self, database: &str, table_name: &str) -> Result<i64, Self::ErrorType> {
+        todo!()
+    }
+
     async fn migrate_table_to_cratedb_pg(&self, schema: &str, table: &Collection<Document>, ignored_columns: Vec<&str>, cratedb: CrateDB, metadata: &mut Metadata) {
         todo!()
     }
@@ -108,8 +110,8 @@ impl Source for PostgresSource {
     async fn migrate_table_to_cratedb(&self, schema: &str, table: &Self::TableType, ignored_columns: Vec<&str>, cratedb: CrateDB, metadata: &mut Metadata) {
         let pool = self.get_pool().await.unwrap();
         let mut columns: Vec<String> = vec![];
-        let mut buffer: Vec<Vec<NormalizedRow>> = vec![];
-        let batch_size = 5000;
+        let mut buffer: Vec<Vec<CValue>> = vec![];
+        let batch_size = 1;
         let mut total_documents_sent = 0;
 
         // Compute the difference between the table's column and `ignored_columns`, we only want to
@@ -125,7 +127,7 @@ impl Source for PostgresSource {
 
                     let difference: HashSet<String> = set1.difference(&set2).cloned().collect();
                     columns = difference.into_iter().collect();
-                },
+                }
                 Err(e) => panic!("{}", format!("{} - Could not get a LIMIT one row to ignore columns. Is there data in the table?", e))
             }
         }
@@ -135,7 +137,7 @@ impl Source for PostgresSource {
         metadata.print_step("Starting connections");
 
         while let Some(row) = rows_stream.next().await {
-            let mut normalized_row: Vec<NormalizedRow> = vec![];
+            let mut normalized_row: Vec<CValue> = vec![];
             let mut columns: Vec<String> = vec![];
 
             match row {
@@ -168,8 +170,8 @@ impl Source for PostgresSource {
         metadata.print_step(format!("Rows per seconds: {}", (total_documents_sent as u128) / metadata.elapsed().as_millis() * 1000).as_str());
     }
 
-    async fn row_to_normalized_row(&self, row: Self::RowType) -> Vec<NormalizedRow> {
-        let mut new_row: Vec<NormalizedRow> = vec![];
+    async fn row_to_normalized_row(&self, row: Self::RowType) -> Vec<CValue> {
+        let mut new_row: Vec<CValue> = vec![];
         for col in row.columns() {
             let name = col.name();
             let type_info = col.type_info();
@@ -177,48 +179,48 @@ impl Source for PostgresSource {
 
             match type_name {
                 "TEXT" => {
-                    new_row.push(pg2normalized!(row, name, String, NormalizedRow::String))
+                    new_row.push(pg2normalized!(row, name, String, CValue::String))
                 }
                 "INET" => {
-                    new_row.push(pg2normalized!(row, name, IpAddr, NormalizedRow::String, |v:IpAddr|v.to_string()))
+                    new_row.push(pg2normalized!(row, name, IpAddr, CValue::String, |v:IpAddr|v.to_string()))
                 }
                 "INT2" => {
-                    new_row.push(pg2normalized!(row, name, i16, NormalizedRow::I16))
+                    new_row.push(pg2normalized!(row, name, i16, CValue::I16))
                 }
                 "INT4" => {
-                    new_row.push(pg2normalized!(row, name, i32, NormalizedRow::I32))
+                    new_row.push(pg2normalized!(row, name, i32, CValue::I32))
                 }
                 "FLOAT4" => {
-                    new_row.push(pg2normalized!(row, name, f32, NormalizedRow::Double32))
+                    new_row.push(pg2normalized!(row, name, f32, CValue::Double32))
                 }
                 "FLOAT8" => {
-                    new_row.push(pg2normalized!(row, name, f64, NormalizedRow::Double64))
+                    new_row.push(pg2normalized!(row, name, f64, CValue::Double64))
                 }
                 "BOOL" => {
-                    new_row.push(pg2normalized!(row, name, bool, NormalizedRow::Bool))
+                    new_row.push(pg2normalized!(row, name, bool, CValue::Bool))
                 }
                 "TIMESTAMP" => {
-                    new_row.push(pg2normalized!(row, name, NaiveDateTime, NormalizedRow::String, |v: NaiveDateTime|v.to_string()));
+                    new_row.push(pg2normalized!(row, name, NaiveDateTime, CValue::String, |v: NaiveDateTime|v.to_string()));
                 }
                 "TEXT[]" => {
-                    new_row.push(pg2normalized!(row, name, Vec<String>, NormalizedRow::VecString));
+                    new_row.push(pg2normalized!(row, name, Vec<String>, CValue::VecString));
                 }
                 "INT4[]" => {
-                    new_row.push(pg2normalized!(row, name, Vec<i32>, NormalizedRow::VecI32));
+                    new_row.push(pg2normalized!(row, name, Vec<i32>, CValue::VecI32));
                 }
                 "INT8[]" => {
-                    new_row.push(pg2normalized!(row, name, Vec<i64>, NormalizedRow::VecI64));
+                    new_row.push(pg2normalized!(row, name, Vec<i64>, CValue::VecI64));
                 }
                 "FLOAT4[]" => {
-                    new_row.push(pg2normalized!(row, name, Vec<f32>, NormalizedRow::VecF32));
+                    new_row.push(pg2normalized!(row, name, Vec<f32>, CValue::VecF32));
                 }
                 "FLOAT8[]" => {
-                    new_row.push(pg2normalized!(row, name, Vec<f64>, NormalizedRow::VecF64))
+                    new_row.push(pg2normalized!(row, name, Vec<f64>, CValue::VecF64))
                 }
                 _ => {
                     let val = row.try_get(name);
                     match val {
-                        Ok(v) => new_row.push(NormalizedRow::String(v)),
+                        Ok(v) => new_row.push(CValue::String(v)),
                         Err(e) => panic!("Datatype is {} - {} ", type_name, e)
                     }
                 }
@@ -235,6 +237,7 @@ impl Source for PostgresSource {
 
 #[cfg(test)]
 mod tests {
+    use tokio::time::{sleep, Duration};
     use sqlx::{Executor, PgPool};
     use testcontainers_modules::{postgres, testcontainers::runners::AsyncRunner};
 
@@ -308,20 +311,23 @@ values  ('27c7719a-0f63-4612-9f2f-846f6dc745d9', 'Lorem ipsum dolor sit amet, co
         let cratedb = CrateDB {};
         let mut metadata = Metadata::new();
         metadata.start();
-        let ignored_columns = vec!["array_mixed",
-                                   "empty_multi_arrays",
-                                   "empty_nested_array",
-                                   "empty_nested_array_2",
-                                   "empty_nested_array_3",
-                                   "empty_nested_array_4",
-                                   "empty_nested_array_5",
-                                   "datetime_2"
-
+        let ignored_columns = vec![
+            "array_mixed",
+            "empty_multi_arrays",
+            "empty_nested_array",
+            "empty_nested_array_2",
+            "empty_nested_array_3",
+            "empty_nested_array_4",
+            "empty_nested_array_5",
+            "datetime_2"
         ];
+        let curr_count = cratedb.count("doc", "data").await.unwrap();
         postgres.migrate_table_to_cratedb("public", &String::from("data"), ignored_columns, cratedb.clone(), &mut metadata).await;
 
         let tables = cratedb.list_tables("doc").await.unwrap();
         assert!(!tables.is_empty());
-        assert!(tables.contains(&"data".to_string()))
+        assert!(tables.contains(&"data".to_string()));
+        sleep(Duration::from_secs(1)).await;
+        assert_eq!(cratedb.count("doc", "data").await.unwrap() , curr_count + 10)
     }
 }

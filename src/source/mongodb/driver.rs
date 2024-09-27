@@ -1,10 +1,13 @@
+use std::collections::HashMap;
+use std::fmt;
+use std::str::FromStr;
 use async_trait::async_trait;
 
 use mongodb::bson::{Bson, doc, Document};
 use mongodb::{Client, Collection, Database};
 
-use serde::{Serialize};
-
+use serde::{Deserialize, Serialize};
+use crate::experiment::data::CValue;
 use crate::metadata::Metadata;
 use crate::sink::cratedb::driver::CrateDB;
 use crate::source::source::{Sink, Source};
@@ -14,22 +17,12 @@ pub struct MongoDBSource {
     pub(crate) uri: String,
 }
 
-#[derive(Debug)]
-pub(crate) enum NormalizedRow {
-    Bool(bool),
-    I16(i16),
-    I32(i32),
-    I64(i64),
-    Double32(f32),
-    Double64(f64),
-    String(String),
-    VecString(Vec<String>),
-    VecI32(Vec<i32>),
-    VecI64(Vec<i64>),
-    VecF32(Vec<f32>),
-    VecF64(Vec<f64>),
-    None,
-}
+
+// Transform this into its own function: `is_same_dtype(other) -> bool`
+
+
+
+
 #[derive(Debug, Serialize)]
 #[serde(untagged)]
 pub(crate) enum StringRow {
@@ -43,15 +36,16 @@ pub(crate) enum StringRow {
     None,
 }
 
-fn bson_to_normalized_row(row: Bson) -> NormalizedRow {
+
+fn bson_to_normalized_row(row: Bson) -> CValue {
     match row {
-        Bson::Double(v) => NormalizedRow::Double64(v),
-        Bson::String(v) => NormalizedRow::String(v),
-        Bson::Int32(v) => NormalizedRow::I32(v),
-        Bson::Int64(v) => NormalizedRow::I64(v),
-        Bson::Decimal128(v) => NormalizedRow::Double64(v.to_string().parse().unwrap()),
-        Bson::ObjectId(v) => NormalizedRow::String(v.to_string()),
-        Bson::Null => NormalizedRow::None,
+        Bson::Double(v) => CValue::Double64(v),
+        Bson::String(v) => CValue::String(v),
+        Bson::Int32(v) => CValue::I32(v),
+        Bson::Int64(v) => CValue::I64(v),
+        Bson::Decimal128(v) => CValue::Double64(v.to_string().parse().unwrap()),
+        Bson::ObjectId(v) => CValue::String(v.to_string()),
+        Bson::Null => CValue::None,
         Bson::Array(v) => {
             // Right now we do not support arrays inside arrays.
             // [ [1,2,3], [4,5,6] ]
@@ -60,15 +54,15 @@ fn bson_to_normalized_row(row: Bson) -> NormalizedRow {
             // we could probably just wrap it in an object; e.g. { obj: [[1,], [2,]]}
             match &v.first() {
                 // Array is empty
-                None => NormalizedRow::VecString(vec![]),
+                None => CValue::VecString(vec![]),
 
                 // Array has contents
                 Some(first_element) => {
                     match first_element {
-                        Bson::Double(_) => NormalizedRow::VecF64(v.into_iter().map(|x| x.as_f64().expect(format!("Could not unwrap value of type '{:?}' to f64, is your array of mixed types?", x.element_type()).as_str())).collect::<Vec<f64>>()),
-                        Bson::Int32(_) => NormalizedRow::VecI32(v.into_iter().map(|x| x.as_i32().expect(format!("Could not unwrap value of type '{:?}' to i32, is your array of mixed types?", x.element_type()).as_str())).collect::<Vec<i32>>()),
-                        Bson::Int64(_) => NormalizedRow::VecI64(v.into_iter().map(|x| x.as_i64().expect(format!("Could not unwrap value of type '{:?}' to i64, is your array of mixed types?", x.element_type()).as_str())).collect::<Vec<i64>>()),
-                        _ => NormalizedRow::VecString(v.into_iter().map(|x| {
+                        Bson::Double(_) => CValue::VecF64(v.into_iter().map(|x| x.as_f64().expect(format!("Could not unwrap value of type '{:?}' to f64, is your array of mixed types?", x.element_type()).as_str())).collect::<Vec<f64>>()),
+                        Bson::Int32(_) => CValue::VecI32(v.into_iter().map(|x| x.as_i32().expect(format!("Could not unwrap value of type '{:?}' to i32, is your array of mixed types?", x.element_type()).as_str())).collect::<Vec<i32>>()),
+                        Bson::Int64(_) => CValue::VecI64(v.into_iter().map(|x| x.as_i64().expect(format!("Could not unwrap value of type '{:?}' to i64, is your array of mixed types?", x.element_type()).as_str())).collect::<Vec<i64>>()),
+                        _ => CValue::VecString(v.into_iter().map(|x| {
                             match x {
                                 Bson::String(s) => s,
                                 _ => x.to_string()
@@ -77,12 +71,11 @@ fn bson_to_normalized_row(row: Bson) -> NormalizedRow {
                     }
                 }
             }
-        },
-        Bson::DateTime(v) => NormalizedRow::I64(v.timestamp_millis()),
+        }
+        Bson::DateTime(v) => CValue::I64(v.timestamp_millis()),
         // Bson::Array(v) => v.into_iter().map(|x| bson_to_normalized_row(x)).collect(),
-
         _ => {
-            NormalizedRow::String(row.to_string())
+            CValue::String(row.to_string())
         }
     }
 }
@@ -114,7 +107,7 @@ fn bson_to_string(row: Bson) -> StringRow {
                     }
                 }
             }
-        },
+        }
         Bson::String(v) => StringRow::String(v),
         Bson::Int32(v) => StringRow::I32(v),
         Bson::Int64(v) => StringRow::I64(v),
@@ -138,34 +131,38 @@ impl Source for MongoDBSource {
     }
     async fn get_client(&self) -> Result<Self::ClientType, Self::ErrorType> {
         let client = Client::with_uri_str(&self.uri).await;
-        return Ok(client.unwrap());
+        Ok(client.unwrap())
     }
     async fn list_databases(&self) -> Result<Vec<String>, Self::ErrorType> {
         let client = self.get_client().await;
         let databases = client.unwrap().list_database_names().await;
-        return Ok(databases.unwrap());
+        Ok(databases.unwrap())
     }
     async fn list_tables(&self, database: &str) -> Result<Vec<String>, Self::ErrorType> {
         let client = self.get_client().await;
         let collections = client.unwrap().database(&database).list_collection_names().await;
-        return Ok(collections.unwrap());
+        Ok(collections.unwrap())
     }
     async fn get_database(&self, database: &str) -> Result<Self::DatabaseType, Self::ErrorType> {
         let client = self.get_client().await;
-        let database = client.unwrap().database(&database);
-        return Ok(database);
+        let database = client?.database(&database);
+        Ok(database)
     }
     async fn get_table(&self, database: &str, table_name: &str) -> Result<Self::TableType, Self::ErrorType> {
-        Ok(self.get_database(&database).await.unwrap().collection(&table_name))
+        Ok(self.get_database(&database).await?.collection(&table_name))
+    }
+
+    async fn count(&self, database: &str, table_name: &str) -> Result<i64, Self::ErrorType> {
+        todo!()
     }
 
     async fn migrate_table_to_cratedb_pg(&self, schema: &str, table: &Collection<Document>, ignored_columns: Vec<&str>, cratedb: CrateDB, metadata: &mut Metadata) {
         println!("Starting migrating table {:?} to CrateDB {:?}", table.name(), cratedb);
-        let batch_size: usize = 3000;
         let mut total_documents_sent = 0;
+        let batch_size: usize = 3000;
         let mut cursor = table.find(doc! {}).batch_size(batch_size as u32).await.expect("Could not create a cursor");
 
-        let mut buffer: Vec<Vec<NormalizedRow>> = vec![];
+        let mut buffer: Vec<Vec<CValue>> = vec![];
         let mut columns: Vec<String> = vec![];
         let mut last_columns: Vec<String> = vec![];
 
@@ -201,7 +198,7 @@ impl Source for MongoDBSource {
 
             if has_doc_len_changed || &buffer.len() == &batch_size {
                 let documents_in_batch: usize = buffer.len();
-                // cratedb.send_batch(&schema, &table.name(), &columns, buffer).await;
+                cratedb.send_batch(&schema, &table.name(), &columns, buffer).await;
 
                 total_documents_sent += &documents_in_batch;
                 metadata.print_step(format!("Sent batch of {:?}", &documents_in_batch).as_str());
@@ -219,7 +216,7 @@ impl Source for MongoDBSource {
         if !buffer.is_empty() {
             let documents_in_batch: usize = buffer.len();
             total_documents_sent += &documents_in_batch;
-            // cratedb.send_batch(&schema, &table.name(), &last_columns, buffer).await
+            cratedb.send_batch(&schema, &table.name(), &last_columns, buffer).await
         }
 
         metadata.print_step(format!("Total records sent: {}", total_documents_sent).as_str());
@@ -228,7 +225,7 @@ impl Source for MongoDBSource {
 
     async fn migrate_table_to_cratedb(&self, schema: &str, table: &Collection<Document>, ignored_columns: Vec<&str>, cratedb: CrateDB, metadata: &mut Metadata) {
         println!("Starting migrating table {:?} to CrateDB {:?}", table.name(), cratedb);
-        let batch_size: usize = 1000;
+        let batch_size: usize = 1;
         let mut total_documents_sent = 0;
         let mut cursor = table.find(doc! {}).batch_size(batch_size as u32).await.expect("Could not create a cursor");
 
@@ -239,11 +236,10 @@ impl Source for MongoDBSource {
         let mut batch_document_len: Option<usize> = None;
 
         metadata.print_step("Starting connection to MongoDB");
-
+        println!("??Asdf");
         while cursor.advance().await.expect("Could not advance cursor; maybe connection was lost") {
-
             let mut document = cursor.deserialize_current().unwrap();
-
+            println!("{:?} focking doc mate", document);
             for column in &ignored_columns {
                 document.remove(column);
             }
@@ -252,6 +248,7 @@ impl Source for MongoDBSource {
                 Some(_) => (),
                 None => batch_document_len = Some(document.len())
             }
+
             let has_doc_len_changed = &batch_document_len.unwrap() != &document.len().clone();
 
             // column is empty on new batches.
@@ -295,8 +292,8 @@ impl Source for MongoDBSource {
         metadata.print_step(format!("Rows per seconds: {}", (total_documents_sent as u128) / metadata.elapsed().as_millis() * 1000).as_str());
     }
 
-    async fn row_to_normalized_row(&self, row: Self::RowType) -> Vec<NormalizedRow> {
-        let mut rows: Vec<NormalizedRow> = Vec::new();
+    async fn row_to_normalized_row(&self, row: Self::RowType) -> Vec<CValue> {
+        let mut rows: Vec<CValue> = Vec::new();
         for (_, value) in row {
             rows.push(bson_to_normalized_row(value))
         }

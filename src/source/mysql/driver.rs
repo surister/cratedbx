@@ -4,28 +4,28 @@ use std::time::Duration;
 use async_trait::async_trait;
 use chrono::NaiveDateTime;
 use futures::StreamExt;
-use mongodb::bson::Bson::Array;
-use mongodb::bson::{Bson, Document};
+use mongodb::bson::Document;
 use mongodb::Collection;
 use serde_json::Value;
+
 use sqlx::mysql::{MySqlPoolOptions, MySqlRow};
 use sqlx::{Column, MySqlPool, Row, TypeInfo};
-use sqlx::encode::IsNull::No;
+use crate::experiment::data::CValue;
 use crate::metadata::Metadata;
 use crate::sink::cratedb::driver::CrateDB;
-use crate::source::mongodb::driver::{NormalizedRow, StringRow};
+use crate::source::mongodb::driver::{StringRow};
 use crate::source::source::{Sink, Source};
 macro_rules! mysql2normalized {
     ($row:expr, $name:expr, $type_name:ty, $result_type:expr) => {
         {
             let val: Result<$type_name, sqlx::Error> = $row.try_get($name);
-            let result: NormalizedRow;
+            let result: CValue;
 
                 match val {
                     Ok(v) => {
                         result = $result_type(v);
                     }
-                    Err(_) => result = NormalizedRow::None
+                    Err(_) => result = CValue::None
                 }
 
             result
@@ -35,13 +35,13 @@ macro_rules! mysql2normalized {
         ($row:expr, $name:expr, $type_name:ty, $result_type:expr, $to_string:expr) => {
         {
             let val: Result<$type_name, sqlx::Error> = $row.try_get($name);
-            let result: NormalizedRow;
+            let result: CValue;
 
                 match val {
                     Ok(v) => {
                         result = $result_type($to_string(v));
                     }
-                    Err(_) => result = NormalizedRow::None
+                    Err(_) => result = CValue::None
                 }
 
             result
@@ -91,6 +91,10 @@ impl Source for MySqlSource {
         todo!()
     }
 
+    async fn count(&self, database: &str, table_name: &str) -> Result<i64, Self::ErrorType> {
+        todo!()
+    }
+
     async fn migrate_table_to_cratedb_pg(&self, schema: &str, table: &Collection<Document>, ignored_columns: Vec<&str>, cratedb: CrateDB, metadata: &mut Metadata) {
         todo!()
     }
@@ -104,7 +108,7 @@ impl Source for MySqlSource {
             let mut total_documents_sent = 0;
             let batch_size = 1000;
 
-            let mut buffer: Vec<Vec<NormalizedRow>> = vec![];
+            let mut buffer: Vec<Vec<CValue>> = vec![];
 
             match one_row {
                 Ok(row) => {
@@ -124,7 +128,7 @@ impl Source for MySqlSource {
             metadata.print_step("Starting connections");
 
             while let Some(row) = rows_stream.next().await {
-                let mut normalized_row: Vec<NormalizedRow> = vec![];
+                let mut normalized_row: Vec<CValue> = vec![];
                 let mut columns: Vec<String> = vec![];
 
                 match row {
@@ -150,7 +154,7 @@ impl Source for MySqlSource {
         }
     }
 
-    async fn row_to_normalized_row(&self, row: Self::RowType) -> Vec<NormalizedRow> {
+    async fn row_to_normalized_row(&self, row: Self::RowType) -> Vec<CValue> {
         let mut new_row = vec![];
         for col in row.columns() {
             let name = col.name();
@@ -159,25 +163,25 @@ impl Source for MySqlSource {
 
             match type_name {
                 "TEXT" => {
-                    new_row.push(mysql2normalized!(row, name, String, NormalizedRow::String))
+                    new_row.push(mysql2normalized!(row, name, String, CValue::String))
                 }
                 "INET" => {
-                    new_row.push(mysql2normalized!(row, name, IpAddr, NormalizedRow::String, |v:IpAddr|v.to_string()))
+                    new_row.push(mysql2normalized!(row, name, IpAddr, CValue::String, |v:IpAddr|v.to_string()))
                 }
                 "SMALLINT" => {
-                    new_row.push(mysql2normalized!(row, name, i16, NormalizedRow::I16))
+                    new_row.push(mysql2normalized!(row, name, i16, CValue::I16))
                 }
                 "INT" => {
-                    new_row.push(mysql2normalized!(row, name, i32, NormalizedRow::I32))
+                    new_row.push(mysql2normalized!(row, name, i32, CValue::I32))
                 }
                 "DOUBLE" => {
-                    new_row.push(mysql2normalized!(row, name, f32, NormalizedRow::Double32))
+                    new_row.push(mysql2normalized!(row, name, f32, CValue::Double32))
                 }
                 "BOOLEAN" => {
-                    new_row.push(mysql2normalized!(row, name, bool, NormalizedRow::Bool))
+                    new_row.push(mysql2normalized!(row, name, bool, CValue::Bool))
                 }
                 "DATETIME" => {
-                    new_row.push(mysql2normalized!(row, name, NaiveDateTime, NormalizedRow::String, |v: NaiveDateTime|v.to_string()));
+                    new_row.push(mysql2normalized!(row, name, NaiveDateTime, CValue::String, |v: NaiveDateTime|v.to_string()));
                 }
                 "JSON" => {
                     let val: Value = row.try_get(name).unwrap();
@@ -191,7 +195,7 @@ impl Source for MySqlSource {
                                     match v {
                                         Value::Number(_) => {
                                             let _v: Vec<f64> = arr.into_iter().map(|x| x.as_f64().unwrap()).collect();
-                                            new_row.push(NormalizedRow::VecF64(_v))
+                                            new_row.push(CValue::VecF64(_v))
                                         }
                                         Value::String(_) => {
                                             let _v: Vec<String> = arr.into_iter().map(|x| {
@@ -200,18 +204,18 @@ impl Source for MySqlSource {
                                                     _ => x.to_string()
                                                 }
                                             }).collect::<Vec<String>>();
-                                            new_row.push(NormalizedRow::VecString(_v))
+                                            new_row.push(CValue::VecString(_v))
                                         }
                                         _ => ()
                                     }
                                 }
                                 None => {
-                                    new_row.push(NormalizedRow::None)
+                                    new_row.push(CValue::None)
                                 }
                             }
                         }
                         _ => {
-                            new_row.push(mysql2normalized!(row, name, Value, NormalizedRow::String, |v:Value|v.to_string()))
+                            new_row.push(mysql2normalized!(row, name, Value, CValue::String, |v:Value|v.to_string()))
                         }
                     }
                 }
@@ -219,7 +223,7 @@ impl Source for MySqlSource {
                 _ => {
                     let val = row.try_get(name);
                     match val {
-                        Ok(v) => new_row.push(NormalizedRow::String(v)),
+                        Ok(v) => new_row.push(CValue::String(v)),
                         Err(e) => panic!("Datatype is {} - {} ", type_name, e)
                     }
                 }

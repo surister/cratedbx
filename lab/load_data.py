@@ -18,9 +18,10 @@ def load_row_to_mongo(row: dict,
     db = client[db]
     table = db[table_name]
 
-    for _ in range(how_many):
-        table.insert_one(row.copy())
+    for _ in row:
+        table.insert_one(_)
 
+    print("ok")
 
 def load_row_to_mysql(row: dict,
                       uri: str,
@@ -59,6 +60,7 @@ def load_row_to_postgres(row: dict,
 
     conn = psycopg2.connect(uri)
     curr = conn.cursor()
+    print("Connected to Postgres")
     query = f'INSERT INTO {table_name} ({columns}) VALUES ({values_interpolation})'
 
     values = list(row.values())
@@ -80,7 +82,7 @@ def load_df_to_mongo(df: polars.DataFrame,
     db = client[db]
     table = db[table_name]
 
-    batch_size = 10_00
+    batch_size = 1
     buffer = []
     for row in df.iter_rows(named=True):
         buffer.append(row)
@@ -88,14 +90,15 @@ def load_df_to_mongo(df: polars.DataFrame,
         if len(buffer) == batch_size:
             table.insert_many(buffer)
             buffer.clear()
+            break
 
 
 df = polars.read_parquet('./data/taxi/')
-MONGO_DB_URI = os.getenv('MONGO_ATLAS_URI')
-POSTGRES_DB_URI = os.getenv('POSTGRES_URI')
+MONGO_DB_URI = "mongodb://localhost" or os.getenv('MONGO_ATLAS_URI', )
+POSTGRES_DB_URI = os.getenv('POSTGRES_URI', 'postgres://postgres:postgres@192.168.88.251:5400/postgres')
 MYSQL_DB_URI = os.getenv('MYSQL_URI', 'mysql://mysql:mysql@localhost:3306/mysql')
 
-# load_row_to_mongo(data.array, 'mongodb://localhost', 'simple_array', how_many=10_0000)
+load_row_to_mongo(data.dirty_structured_arrays, 'mongodb://localhost', 'unstructured_array', how_many=10)
 # load_df_to_mongo(df, MONGO_DB_URI, table_name='taxi')
-# load_row_to_postgres(data.array, POSTGRES_DB_URI, 'simple_array', how_many=1)
-load_row_to_mysql(data.array, MYSQL_DB_URI, 'simple_array', how_many=10_000)
+# load_row_to_postgres(data.array, POSTGRES_DB_URI, 'simple_array', how_many=10)
+# load_row_to_mysql(data.array, MYSQL_DB_URI, 'simple_array', how_many=10_000)

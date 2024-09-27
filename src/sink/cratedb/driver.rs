@@ -8,9 +8,9 @@ use serde_json::json;
 
 use sqlx::{Executor, Pool, Postgres, QueryBuilder, Row};
 use sqlx::postgres::PgPoolOptions;
-
+use crate::experiment::data::CValue;
 use crate::metadata::Metadata;
-use crate::source::mongodb::driver::{NormalizedRow, StringRow};
+use crate::source::mongodb::driver::{StringRow};
 use crate::source::source::{Sink, Source};
 use crate::utils::get_fqn_table;
 
@@ -44,6 +44,7 @@ impl Sink for CrateDB {
         let body = json!({
            "stmt": query, "bulk_args": &buffer
         });
+        println!("{:?}", body);
 
         let client = reqwest::Client::new();
         let res = client.post("http://crate@192.168.88.251:4200/_sql")
@@ -51,29 +52,30 @@ impl Sink for CrateDB {
             .send()
             .await;
         match res {
-            Ok(r) => (),
+            Ok(r) => println!("{:?}", r.status()),
             Err(e) => println!("{:?}", e)
         }
     }
-    async fn send_batch(&self, schema: &str, table_name: &str, columns: &Vec<String>, buffer: Vec<Vec<NormalizedRow>>) {
+    async fn send_batch(&self, schema: &str, table_name: &str, columns: &Vec<String>, buffer: Vec<Vec<CValue>>) {
         let mut query_builder = self.build_insert_values_statement(&schema, &table_name, &columns);
 
         query_builder.push_values(&buffer, |mut separated, x| {
             for value in x {
                 match value {
-                    NormalizedRow::None => separated.push_bind::<Option<String>>(None),
-                    NormalizedRow::Bool(v) => separated.push_bind(v),
-                    NormalizedRow::String(v) => separated.push_bind(v),
-                    NormalizedRow::I16(v) => separated.push_bind(v),
-                    NormalizedRow::I32(v) => separated.push_bind(v),
-                    NormalizedRow::I64(v) => separated.push_bind(v),
-                    NormalizedRow::Double32(v) => separated.push_bind(v),
-                    NormalizedRow::Double64(v) => separated.push_bind(v),
-                    NormalizedRow::VecF32(v) => separated.push_bind(v),
-                    NormalizedRow::VecF64(v) => separated.push_bind(v),
-                    NormalizedRow::VecI32(v) => separated.push_bind(v),
-                    NormalizedRow::VecI64(v) => separated.push_bind(v),
-                    NormalizedRow::VecString(v) => separated.push_bind(v),
+                    CValue::None => separated.push_bind::<Option<String>>(None),
+                    CValue::Bool(v) => separated.push_bind(v),
+                    CValue::String(v) => separated.push_bind(v),
+                    CValue::I16(v) => separated.push_bind(v),
+                    CValue::I32(v) => separated.push_bind(v),
+                    CValue::I64(v) => separated.push_bind(v),
+                    CValue::Double32(v) => separated.push_bind(v),
+                    CValue::Double64(v) => separated.push_bind(v),
+                    CValue::VecF32(v) => separated.push_bind(v),
+                    CValue::VecF64(v) => separated.push_bind(v),
+                    CValue::VecI32(v) => separated.push_bind(v),
+                    CValue::VecI64(v) => separated.push_bind(v),
+                    CValue::VecString(v) => separated.push_bind(v),
+                    _ => separated.push_bind("CVALUE_ERROR_REPORT_CRATEDB")
                 };
 
             }
@@ -136,13 +138,33 @@ impl Source for CrateDB {
     async fn get_table(&self, database: &str, table_name: &str) -> Result<Self::TableType, Self::ErrorType> {
         todo!()
     }
+
+    async fn count(&self, database: &str, table_name: &str) -> Result<i64, Self::ErrorType> {
+        let pool = self.get_pool().await.unwrap();
+        let query = format!(
+            "SELECT COUNT(*) FROM {}.{}", database, table_name
+        );
+        let result = pool.fetch_one(&*query).await;
+
+        match result {
+            Ok(row) => {
+                let table_vec: Result<i64, sqlx::Error> = row.try_get(0);
+                match table_vec {
+                    Ok(result) => Ok(result),
+                    Err(e)=> panic!("{}", e)
+                }
+            },
+            Err(_) => Ok(0)
+        }
+    }
+
     async fn migrate_table_to_cratedb_pg(&self, schema: &str, table: &Collection<Document>, ignored_columns: Vec<&str>, cratedb: CrateDB, metadata: &mut Metadata) {
         todo!()
     }
     async fn migrate_table_to_cratedb(&self, schema: &str, table: &Self::TableType, ignored_columns: Vec<&str>, cratedb: CrateDB, metadata: &mut Metadata) {
         todo!()
     }
-    async fn row_to_normalized_row(&self, row: Self::RowType) -> Vec<NormalizedRow> {
+    async fn row_to_normalized_row(&self, row: Self::RowType) -> Vec<CValue> {
         todo!()
     }
     fn row_to_vec_str(&self, row: Self::RowType) -> Vec<StringRow> {
