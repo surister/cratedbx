@@ -64,12 +64,12 @@ fn check_dataset(mut dataframe: CDataFrame, schema: CSchema) -> CDataFrame {
                 // If the expected dtype is not equal to the value dtype
                 if !&value.equals_dtype(&CValue::None) && !value.is_dtype(expected_dtype) {
                     match strategy {
-                        DtypeStrategy::new_col => {
+                        DtypeStrategy::NewCol => {
                             new_rows.push((value.clone(), i, column.clone()));
                             *value = CValue::None;
                         }
 
-                        DtypeStrategy::cast => {
+                        DtypeStrategy::Cast => {
                             match (&expected_dtype, &value) {
                                 (CValueType::String, CValue::String(_)) => continue,
                                 (CValueType::String, CValue::VecString(v)) => *value = CValue::String(v.join(" ")),
@@ -98,7 +98,14 @@ fn check_dataset(mut dataframe: CDataFrame, schema: CSchema) -> CDataFrame {
             last_padding = i;
             col_values.extend(vec![CValue::None; i]);
             col_values.push(value);
-            dataframe.add_column(new_column_name, CColumn { values: col_values, expected_dtype: expected_dtype.unwrap(), data_type: dtype });
+            dataframe.add_column(
+                new_column_name,
+                CColumn {
+                    values: col_values,
+                    expected_dtype: expected_dtype.unwrap(),
+                    data_type: dtype,
+                    dtype_strategy: DtypeStrategy::Ignore
+                });
         } else {
             col_values.extend(vec![CValue::None; i - last_padding]);
             col_values.push(value);
@@ -107,11 +114,7 @@ fn check_dataset(mut dataframe: CDataFrame, schema: CSchema) -> CDataFrame {
         }
     }
 
-    for (column_name, row) in &mut dataframe.columns {
-        if row.data_type.equals_dtype(&CValue::VecDyn(vec![])) {
-            // println!("{:?}", row);
-        }
-    }
+
 
     dataframe
 }
@@ -124,16 +127,16 @@ fn get_expected_dtype(schema: &CSchema, column_name: &str) -> Option<CValueType>
 }
 
 fn get_strategy(schema: &CSchema, column_name: &str) -> Option<DtypeStrategy> {
-    schema.columns.get(column_name).and_then(|column_info| column_info.dtype_collision_strategy.as_str().parse().ok())
+    schema.columns.get(column_name).and_then(|column_info| Option::from(column_info.dtype_collision_strategy.clone()))
 }
 
 pub async fn iter_cols(table: &Collection<Document>, metadata: &mut Metadata) {
     let data = r#"
         {
-            "name": {"dtype": "String", "dtype_collision_strategy": "new_col", "sub_schema": { "sub_id": {"dtype": "I32", "dtype_collision_strategy": "new_col"} }},
-            "another_col": {"dtype": "String", "dtype_collision_strategy": "new_col"},
-            "sub_id": {"dtype": "I32", "dtype_collision_strategy": "new_col"},
-            "k": {"dtype": "Object", "dtype_collision_strategy": "cast"}
+            "name": {"dtype": "String", "dtype_collision_strategy": "NewCol", "sub_schema": { "sub_id": {"dtype": "I32", "dtype_collision_strategy": "NewCol"} }},
+            "another_col": {"dtype": "String", "dtype_collision_strategy": "NewCol"},
+            "sub_id": {"dtype": "I32", "dtype_collision_strategy": "NewCol"},
+            "k": {"dtype": "Object", "dtype_collision_strategy": "Cast"}
         }"#;
 
     let schema: CSchema = serde_json::from_str(data).unwrap();

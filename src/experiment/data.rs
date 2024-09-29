@@ -48,8 +48,55 @@ impl CDataFrame {
         Self {
             columns: IndexMap::new(),
             count: 0,
-            selected_columns: vec![]
+            selected_columns: vec![],
         }
+    }
+
+    pub fn from_bson(documents: Vec<Document>, schema: CSchema) -> Self {
+        let mut new_dataframe = Self::new();
+
+        // Track the current columns in the dataset.
+        let mut dataset_columns: HashSet<String> = HashSet::new();
+        let mut row_count: usize = 0;
+
+        // Track the columns of the current document.
+        for document in documents {
+            let doc_columns: Vec<String> = document.keys().map(|x| String::from(x)).collect();
+
+            for col in &doc_columns {
+                if !new_dataframe.has_column(col) {
+
+                    // If a new column is found, add it to the dataset.
+                    dataset_columns.insert(col.to_string());
+
+                    // Fill the columns with nulls, so if we insert a new column at length 8, 1to7 are not empty, but have nulls.
+                    new_dataframe.add_column(
+                        col.to_string(),
+                        CColumn {
+                            values: vec![CValue::None; row_count],
+                            data_type: CValueType::Unknown,
+                            expected_dtype: CValueType::Unknown,
+                            dtype_strategy: DtypeStrategy::Ignore,
+                        });
+                }
+            }
+
+            for (col, value) in document {
+                new_dataframe.add_value_to_column(&col, bson_to_cvalue(value))
+            }
+
+            for col in &dataset_columns {
+                if !doc_columns.contains(&col) {
+                    // If a document does not contain a key in the dataframe, add a None, so all
+                    // columns have the same length.
+                    new_dataframe.add_value_to_column(col, CValue::None)
+                }
+            }
+            row_count += 1;
+        }
+        new_dataframe.count = row_count;
+        new_dataframe.set_schema(schema);
+        new_dataframe
     }
 
     pub fn select(mut self, columns: Vec<String>) -> Self {
