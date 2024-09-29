@@ -97,6 +97,16 @@ impl CDataFrame {
         }
     }
 
+    fn set_schema(&mut self, schema: CSchema) {
+        for (name, column) in schema.columns {
+            if self.has_column(&name) {
+                self.modify_column(name, |x| {
+                    x.expected_dtype = column.dtype
+                })
+            }
+        }
+    }
+
     pub fn from_bson(documents: Vec<Document>, schema: CSchema) -> Self {
         let mut new_dataframe = Self::new();
 
@@ -132,10 +142,7 @@ impl CDataFrame {
             row_count += 1;
         }
         new_dataframe.count = row_count;
-
-        // for (name, col) in &new_dataframe.columns {
-        //     let expected_dtype: Option<CValue> = get_expected_dtype(&schema, column);
-        // }
+        new_dataframe.set_schema(schema);
         new_dataframe
     }
 
