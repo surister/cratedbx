@@ -9,12 +9,12 @@ use serde::{Deserialize, Serialize};
 use crate::experiment::schema::CSchema;
 use crate::experiment::trans::bson_to_cvalue;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum DtypeStrategy {
-    new_col,
-    cast,
-    ignore,
-    remove,
+    NewCol,
+    Cast,
+    Ignore,
+    Remove
 }
 
 pub struct ParseDtypeStrategyError {
@@ -27,8 +27,10 @@ impl FromStr for DtypeStrategy {
 
     fn from_str(input: &str) -> Result<DtypeStrategy, ParseDtypeStrategyError> {
         match input.to_lowercase().as_str() {
-            "new_col" => Ok(DtypeStrategy::new_col),
-            "cast" => Ok(DtypeStrategy::cast),
+            "new_col" => Ok(DtypeStrategy::NewCol),
+            "cast" => Ok(DtypeStrategy::Cast),
+            "ignore" => Ok(DtypeStrategy::Ignore),
+            "remove" => Ok(DtypeStrategy::Remove),
             _ => Err(ParseDtypeStrategyError { message: format!("'{}' is not a valid CValue", input) }),
         }
     }
@@ -114,7 +116,12 @@ impl CDataFrame {
 
     pub fn print_schema(&self) {
         for (name, column) in &self.columns {
-            println!("{:?} expected_dtype: {:?}, dtype: {:?}", name, column.expected_dtype, column.data_type)
+            println!("{:?} expected_dtype: {:?}, dtype: {:?}, strategy: {:?}",
+                     name,
+                     column.expected_dtype,
+                     column.data_type,
+                     column.dtype_strategy
+            )
         }
     }
 
@@ -145,7 +152,8 @@ impl CDataFrame {
         for (name, column) in schema.columns {
             if self.has_column(&name) {
                 self.modify_column(name, |x| {
-                    x.expected_dtype = column.dtype
+                    x.expected_dtype = column.dtype;
+                    x.dtype_strategy = column.dtype_collision_strategy;
                 })
             }
         }
@@ -203,7 +211,7 @@ impl CDataFrame {
         self.columns.insert(name, column);
     }
 
-    pub fn add_value_to_column(&mut self, name: &String, value: CValue){
+    pub fn add_value_to_column(&mut self, name: &String, value: CValue) {
         self.columns.get_mut(name).unwrap().values.push(value);
     }
 
@@ -218,6 +226,7 @@ impl CDataFrame {
     pub fn add_values_to_column(&mut self, name: String, values: Vec<CValue>) {
         self.columns.entry(name).and_modify(|x| { x.values.extend(values); });
     }
+
     pub fn get_mut(&mut self, key: &str) -> Option<&mut CColumn> {
         self.columns.get_mut(key)
     }
