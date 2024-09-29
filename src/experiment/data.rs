@@ -67,6 +67,12 @@ impl CDataFrame {
         self
     }
 
+    pub fn print_schema(&self) {
+        for (name, column) in &self.columns {
+            println!("{:?} expected_dtype: {:?}, dtype: {:?}", name, column.expected_dtype, column.data_type)
+        }
+    }
+
     pub fn print(&self) {
         println!("{:?}", self.columns);
         let headers = if self.selected_columns.is_empty() {
