@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use crate::experiment::data::CValueType;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ColumnInfo {
-    pub dtype: String,
+    pub dtype: CValueType,
     pub dtype_collision_strategy: String,
     pub sub_schema: Option<HashMap<String, ColumnInfo>>,
 }

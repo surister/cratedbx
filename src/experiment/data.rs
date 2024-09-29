@@ -4,7 +4,7 @@ use std::fmt::Formatter;
 use std::str::FromStr;
 use indexmap::IndexMap;
 use indexmap::map::Entry;
-use mongodb::bson::{Bson, Document};
+use mongodb::bson::{Document};
 use serde::{Deserialize, Serialize};
 use crate::experiment::schema::CSchema;
 use crate::experiment::trans::bson_to_cvalue;
@@ -35,7 +35,6 @@ impl FromStr for DtypeStrategy {
 }
 
 
-
 #[derive(Debug)]
 pub struct CDataFrame {
     pub columns: IndexMap<String, CColumn>,
@@ -44,7 +43,6 @@ pub struct CDataFrame {
 }
 
 impl CDataFrame {
-
     /// Instantiate an empty CDataFrame.
     pub fn new() -> Self {
         Self {
@@ -74,7 +72,6 @@ impl CDataFrame {
     }
 
     pub fn print(&self) {
-        println!("{:?}", self.columns);
         let headers = if self.selected_columns.is_empty() {
             self.columns.iter().map(|(x, c)| x.to_string()).collect()
         } else { self.selected_columns.clone() };
@@ -124,9 +121,8 @@ impl CDataFrame {
                     // If a new column is found, add it to the dataset.
                     dataset_columns.insert(col.to_string());
 
-                    // Fill the columns with nulls.
-                    // dataset.entry(col.to_string()).or_insert_with(|| vec![CValue::None; row_count]);
-                    new_dataframe.add_column(col.to_string(), CColumn { values: vec![CValue::None; row_count], data_type: CValue::Unknown, expected_dtype: CValue::Unknown });
+                    // Fill the columns with nulls, so if we insert a new column at length 8, 1to7 are not empty, but have nulls.
+                    new_dataframe.add_column(col.to_string(), CColumn { values: vec![CValue::None; row_count], data_type: CValueType::Unknown, expected_dtype: CValueType::Unknown });
                 }
             }
 
@@ -136,6 +132,8 @@ impl CDataFrame {
 
             for col in &dataset_columns {
                 if !doc_columns.contains(&col) {
+                    // If a document does not contain a key in the dataframe, add a None, so all
+                    // columns have the same length.
                     new_dataframe.add_value_to_column(col, CValue::None)
                 }
             }
@@ -162,8 +160,16 @@ impl CDataFrame {
         self.columns.get_mut(name).unwrap().values.push(value);
     }
 
-    pub fn add_values_to_column(&mut self, name: String, values: Vec<CValue>){
-         self.columns.entry(name).and_modify(|x| { x.values.extend(values); });
+    pub fn modify_column<Fn>(&mut self, name: String, func: Fn)
+    where
+        Fn: FnOnce(&mut CColumn),
+
+    {
+        self.columns.entry(name).and_modify(|x| { func(x) });
+    }
+
+    pub fn add_values_to_column(&mut self, name: String, values: Vec<CValue>) {
+        self.columns.entry(name).and_modify(|x| { x.values.extend(values); });
     }
     pub fn get_mut(&mut self, key: &str) -> Option<&mut CColumn> {
         self.columns.get_mut(key)
@@ -172,9 +178,9 @@ impl CDataFrame {
 
 #[derive(Debug)]
 pub struct CColumn {
-    pub(crate) values: Vec<CValue>,
-    pub(crate) data_type: CValue,
-    pub(crate) expected_dtype: CValue,
+    pub values: Vec<CValue>,
+    pub data_type: CValueType,
+    pub expected_dtype: CValueType,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -198,7 +204,7 @@ pub enum CValue {
 }
 
 
-#[derive(PartialOrd, PartialEq)]
+#[derive(PartialOrd, PartialEq, Debug, Clone, Serialize, Deserialize, Copy)]
 pub enum CValueType {
     Bool,
     I16,
@@ -218,8 +224,23 @@ pub enum CValueType {
     Unknown,
 }
 
+impl FromStr for CValueType {
+    type Err = ParseCValueTypeError;
+
+    fn from_str(input: &str) -> Result<CValueType, ParseCValueTypeError> {
+        match input.to_lowercase().as_str() {
+            "string" => Ok(CValueType::String),
+            "vecstring" => Ok(CValueType::VecString),
+            "i32" => Ok(CValueType::I32),
+            "object" => Ok(CValueType::Object),
+            _ => Err(ParseCValueTypeError { message: format!("'{}' is not a valid CValue", input) }),
+        }
+    }
+}
+
+
 #[derive(Debug, Clone)]
-pub struct ParseCValueError {
+pub struct ParseCValueTypeError {
     message: String,
 }
 impl CValue {
@@ -243,6 +264,10 @@ impl CValue {
     pub fn equals_dtype(&self, other: &Self) -> bool {
         self.get_dtype() == other.get_dtype()
     }
+
+    pub fn is_dtype(&self, _type: CValueType) -> bool {
+        self.get_dtype() == _type
+    }
 }
 
 impl fmt::Display for CValue {
@@ -259,23 +284,9 @@ impl fmt::Display for CValue {
         }
     }
 }
-impl fmt::Display for ParseCValueError {
+impl fmt::Display for ParseCValueTypeError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "Error parsing CValue: {}", self.message)
-    }
-}
-
-
-impl FromStr for CValue {
-    type Err = ParseCValueError;
-
-    fn from_str(input: &str) -> Result<CValue, ParseCValueError> {
-        match input.to_lowercase().as_str() {
-            "string" => Ok(CValue::String("_".parse().unwrap())),
-            "vecstring" => Ok(CValue::VecString(vec![])),
-            "i32" => Ok(CValue::I32(0)),
-            _ => Err(ParseCValueError { message: format!("'{}' is not a valid CValue", input) }),
-        }
     }
 }
 

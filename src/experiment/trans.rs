@@ -2,7 +2,7 @@ use std::collections::{HashMap};
 use std::str::FromStr;
 use mongodb::bson::{doc, Bson, Document};
 use mongodb::Collection;
-use crate::experiment::data::{get_inner_cvalue_type_name, CColumn, CDataFrame, CValue, DtypeStrategy};
+use crate::experiment::data::{get_inner_cvalue_type_name, CColumn, CDataFrame, CValue, CValueType, DtypeStrategy};
 use crate::experiment::schema::CSchema;
 use crate::metadata::Metadata;
 
@@ -53,7 +53,7 @@ fn check_dataset(mut dataframe: CDataFrame, schema: CSchema) -> CDataFrame {
     // We go through every defined column in the Schema and resolve its schema, if there is a value dtype mismatch
     // the DtypeStrategy solution will be applied to resolve it.
     for (column, row) in &mut dataframe.columns {
-        let expected_dtype: Option<CValue> = get_expected_dtype(&schema, column);
+        let expected_dtype: Option<CValueType> = get_expected_dtype(&schema, column);
         let strategy: Option<DtypeStrategy> = get_strategy(&schema, column);
 
         if let (Some(expected_dtype), Some(strategy)) = (expected_dtype, strategy) {
@@ -62,7 +62,7 @@ fn check_dataset(mut dataframe: CDataFrame, schema: CSchema) -> CDataFrame {
             for (i, value) in row.values.iter_mut().enumerate() {
 
                 // If the expected dtype is not equal to the value dtype
-                if !value.equals_dtype(&CValue::None) & !expected_dtype.equals_dtype(value) {
+                if !&value.equals_dtype(&CValue::None) && !value.is_dtype(expected_dtype) {
                     match strategy {
                         DtypeStrategy::new_col => {
                             new_rows.push((value.clone(), i, column.clone()));
@@ -71,10 +71,10 @@ fn check_dataset(mut dataframe: CDataFrame, schema: CSchema) -> CDataFrame {
 
                         DtypeStrategy::cast => {
                             match (&expected_dtype, &value) {
-                                (CValue::String(_), CValue::String(_)) => continue,
-                                (CValue::String(_), CValue::VecString(v)) => *value = CValue::String(v.join(" ")),
-                                (CValue::I32(_), CValue::String(v)) => *value = CValue::I32(v.parse().unwrap()),
-                                (CValue::String(_), CValue::I32(v)) => *value = CValue::String(v.to_string()),
+                                (CValueType::String, CValue::String(_)) => continue,
+                                (CValueType::String, CValue::VecString(v)) => *value = CValue::String(v.join(" ")),
+                                (CValueType::I32, CValue::String(v)) => *value = CValue::I32(v.parse().unwrap()),
+                                (CValueType::String, CValue::I32(v)) => *value = CValue::String(v.to_string()),
                                 _ => continue
                             }
                         }
@@ -93,8 +93,8 @@ fn check_dataset(mut dataframe: CDataFrame, schema: CSchema) -> CDataFrame {
         let new_column_name = format!("{}_{}", column, get_inner_cvalue_type_name(&value)).to_string();
 
         if !dataframe.has_column(&new_column_name) {
-            let expected_dtype = get_expected_dtype(&schema, &new_column_name).or(Some(CValue::Unknown));
-            let dtype = value.clone();
+            let expected_dtype = get_expected_dtype(&schema, &new_column_name).or(Some(CValueType::Unknown));
+            let dtype = value.get_dtype();
             last_padding = i;
             col_values.extend(vec![CValue::None; i]);
             col_values.push(value);
@@ -116,11 +116,11 @@ fn check_dataset(mut dataframe: CDataFrame, schema: CSchema) -> CDataFrame {
     dataframe
 }
 
-fn get_expected_dtype(schema: &CSchema, column_name: &str) -> Option<CValue> {
+fn get_expected_dtype(schema: &CSchema, column_name: &str) -> Option<CValueType> {
     schema
         .columns
         .get(column_name)
-        .and_then(|column_info| column_info.dtype.as_str().parse().ok())
+        .and_then(|column_info| Option::from(column_info.dtype))
 }
 
 fn get_strategy(schema: &CSchema, column_name: &str) -> Option<DtypeStrategy> {
@@ -130,10 +130,10 @@ fn get_strategy(schema: &CSchema, column_name: &str) -> Option<DtypeStrategy> {
 pub async fn iter_cols(table: &Collection<Document>, metadata: &mut Metadata) {
     let data = r#"
         {
-            "name": {"dtype": "string", "dtype_collision_strategy": "new_col", "sub_schema": { "sub_id": {"dtype": "i32", "dtype_collision_strategy": "new_col"} }},
+            "name": {"dtype": "String", "dtype_collision_strategy": "new_col", "sub_schema": { "sub_id": {"dtype": "I32", "dtype_collision_strategy": "new_col"} }},
             "another_col": {"dtype": "String", "dtype_collision_strategy": "new_col"},
-            "sub_id": {"dtype": "i32", "dtype_collision_strategy": "new_col"},
-            "k": {"dtype": "object", "dtype_collision_strategy": "cast"}
+            "sub_id": {"dtype": "I32", "dtype_collision_strategy": "new_col"},
+            "k": {"dtype": "Object", "dtype_collision_strategy": "cast"}
         }"#;
 
     let schema: CSchema = serde_json::from_str(data).unwrap();
@@ -148,7 +148,8 @@ pub async fn iter_cols(table: &Collection<Document>, metadata: &mut Metadata) {
     }
 
     let mut dataframe = CDataFrame::from_bson(buffer, schema);
-
+    dataframe = dataframe.select(vec!["k".to_string()]);
+    dataframe.print_schema();
     // dataframe = dataframe.select(vec![
     //     "id".to_string(),
     //     "_id".to_string(),
