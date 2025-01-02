@@ -21,22 +21,6 @@ pub struct MongoDBSource {
 // Transform this into its own function: `is_same_dtype(other) -> bool`
 
 
-
-
-#[derive(Debug, Serialize)]
-#[serde(untagged)]
-pub(crate) enum StringRow {
-    String(String),
-    I32(i32),
-    U32(u32),
-    I64(i64),
-    Vec(Vec<String>),
-    VecI32(Vec<i32>),
-    VecF64(Vec<f64>),
-    None,
-}
-
-
 fn bson_to_normalized_row(row: Bson) -> CValue {
     match row {
         Bson::Double(v) => CValue::Double64(v),
@@ -80,42 +64,6 @@ fn bson_to_normalized_row(row: Bson) -> CValue {
     }
 }
 
-
-fn bson_to_string(row: Bson) -> StringRow {
-    match row {
-        Bson::ObjectId(v) => StringRow::String(v.to_string()),
-        Bson::Array(v) => {
-            // Right now we do not support arrays inside arrays.
-            // [ [1,2,3], [4,5,6] ]
-            // This translates to Array [String("[...]"), String("[...]")], to support it
-            // we should iterate further (match if content is an array) and extract those, alternatively
-            // we could probably just wrap it in an object; e.g. { obj: [[1,], [2,]]}
-            match &v.first() {
-                // Array is empty
-                None => StringRow::Vec(vec![]),
-
-                // Array has contents
-                Some(first_element) => {
-                    match first_element {
-                        Bson::Double(_) => StringRow::VecF64(v.into_iter().map(|x| x.as_f64().unwrap()).collect::<Vec<f64>>()),
-                        _ => StringRow::Vec(v.into_iter().map(|x| {
-                            match x {
-                                Bson::String(s) => s,
-                                _ => x.to_string()
-                            }
-                        }).collect::<Vec<String>>())
-                    }
-                }
-            }
-        }
-        Bson::String(v) => StringRow::String(v),
-        Bson::Int32(v) => StringRow::I32(v),
-        Bson::Int64(v) => StringRow::I64(v),
-        Bson::DateTime(v) => StringRow::String(v.try_to_rfc3339_string().unwrap()),
-        Bson::Null => StringRow::None,
-        _ => StringRow::String(row.to_string())
-    }
-}
 
 #[async_trait]
 impl Source for MongoDBSource {
@@ -223,73 +171,8 @@ impl Source for MongoDBSource {
         metadata.print_step(format!("Rows per seconds: {}", (total_documents_sent as u128) / metadata.elapsed().as_millis() * 1000).as_str());
     }
 
-    async fn migrate_table_to_cratedb(&self, schema: &str, table: &Collection<Document>, ignored_columns: Vec<&str>, cratedb: CrateDB, metadata: &mut Metadata) {
-        println!("Starting migrating table {:?} to CrateDB {:?}", table.name(), cratedb);
-        let batch_size: usize = 1;
-        let mut total_documents_sent = 0;
-        let mut cursor = table.find(doc! {}).batch_size(batch_size as u32).await.expect("Could not create a cursor");
+    async fn migrate_table_to_cratedb(&self, schema: &str, table: &Self::TableType, ignored_columns: Vec<&str>, cratedb: CrateDB, metadata: &mut Metadata) {
 
-        let mut buffer: Vec<Vec<StringRow>> = vec![];
-        let mut current_batch_columns: Vec<String> = vec![];
-        let mut last_columns: Vec<String> = vec![];
-
-        let mut batch_document_len: Option<usize> = None;
-
-        metadata.print_step("Starting connection to MongoDB");
-        println!("??Asdf");
-        while cursor.advance().await.expect("Could not advance cursor; maybe connection was lost") {
-            let mut document = cursor.deserialize_current().unwrap();
-            println!("{:?} focking doc mate", document);
-            for column in &ignored_columns {
-                document.remove(column);
-            }
-
-            match batch_document_len {
-                Some(_) => (),
-                None => batch_document_len = Some(document.len())
-            }
-
-            let has_doc_len_changed = &batch_document_len.unwrap() != &document.len().clone();
-
-            // column is empty on new batches.
-            if current_batch_columns.is_empty() {
-                current_batch_columns = document.keys().map(|x| String::from(x)).collect();
-            }
-
-            if has_doc_len_changed || last_columns.is_empty() {
-                // This fixes getting the columns for the last batch.
-                last_columns = document.keys().map(|x| String::from(x)).collect();
-            }
-
-            let normalized_row = self.row_to_vec_str(document);
-
-            if has_doc_len_changed || &buffer.len() == &batch_size {
-                let documents_in_batch: usize = buffer.len();
-                cratedb.send_batch_http(&schema, &table.name(), &current_batch_columns, buffer).await;
-
-                total_documents_sent += &documents_in_batch;
-                metadata.print_step(format!("Sent batch of {:?}", &documents_in_batch).as_str());
-
-                // Clear up all temporal containers for the next iteration.
-                buffer = vec![];
-                batch_document_len = None;
-                current_batch_columns.clear();
-            }
-            buffer.push(normalized_row);
-        }
-
-        // There is still a last batch.
-        // Rows of the last batch are guaranteed to be of the same length.
-        if !buffer.is_empty() {
-            let documents_in_batch: usize = buffer.len();
-            total_documents_sent += &documents_in_batch;
-            cratedb.send_batch_http(&schema, &table.name(), &last_columns, buffer).await;
-            total_documents_sent += &documents_in_batch;
-            metadata.print_step(format!("Sent batch of {:?}", &documents_in_batch).as_str());
-        }
-
-        metadata.print_step(format!("Total records sent: {}", total_documents_sent).as_str());
-        metadata.print_step(format!("Rows per seconds: {}", (total_documents_sent as u128) / metadata.elapsed().as_millis() * 1000).as_str());
     }
 
     async fn row_to_normalized_row(&self, row: Self::RowType) -> Vec<CValue> {
@@ -298,13 +181,5 @@ impl Source for MongoDBSource {
             rows.push(bson_to_normalized_row(value))
         }
         return rows;
-    }
-
-    fn row_to_vec_str(&self, row: Self::RowType) -> Vec<StringRow> {
-        let mut rows: Vec<StringRow> = Vec::new();
-        for (_, value) in row {
-            rows.push(bson_to_string(value))
-        }
-        rows
     }
 }

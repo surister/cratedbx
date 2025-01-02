@@ -102,3 +102,4 @@ load_row_to_mongo(data.dirty_structured_arrays, 'mongodb://localhost', 'unstruct
 # load_df_to_mongo(df, MONGO_DB_URI, table_name='taxi')
 # load_row_to_postgres(data.array, POSTGRES_DB_URI, 'simple_array', how_many=10)
 # load_row_to_mysql(data.array, MYSQL_DB_URI, 'simple_array', how_many=10_000)
+

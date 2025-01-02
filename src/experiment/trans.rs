@@ -2,6 +2,7 @@ use std::collections::{HashMap};
 use std::str::FromStr;
 use mongodb::bson::{doc, Bson, Document};
 use mongodb::Collection;
+
 use crate::experiment::data::{get_inner_cvalue_type_name, CColumn, CDataFrame, CValue, CValueType, DtypeStrategy};
 use crate::experiment::schema::CSchema;
 use crate::metadata::Metadata;
@@ -44,7 +45,6 @@ pub fn bson_to_cvalue(row: Bson) -> CValue {
 
     }
 }
-
 
 
 fn check_dataset(mut dataframe: CDataFrame, schema: CSchema) -> CDataFrame {
@@ -104,7 +104,8 @@ fn check_dataset(mut dataframe: CDataFrame, schema: CSchema) -> CDataFrame {
                     values: col_values,
                     expected_dtype: expected_dtype.unwrap(),
                     data_type: dtype,
-                    dtype_strategy: DtypeStrategy::Ignore
+                    dtype_strategy: DtypeStrategy::Ignore,
+                    sub_schema: None
                 });
         } else {
             col_values.extend(vec![CValue::None; i - last_padding]);
@@ -127,20 +128,25 @@ fn get_expected_dtype(schema: &CSchema, column_name: &str) -> Option<CValueType>
 }
 
 fn get_strategy(schema: &CSchema, column_name: &str) -> Option<DtypeStrategy> {
-    schema.columns.get(column_name).and_then(|column_info| Option::from(column_info.dtype_collision_strategy.clone()))
+    schema
+        .columns
+        .get(column_name)
+        .and_then(|column_info| Option::from(column_info.dtype_collision_strategy.clone()))
 }
 
 pub async fn iter_cols(table: &Collection<Document>, metadata: &mut Metadata) {
     let data = r#"
         {
-            "name": {"dtype": "String", "dtype_collision_strategy": "NewCol", "sub_schema": { "sub_id": {"dtype": "I32", "dtype_collision_strategy": "NewCol"} }},
+            "name": {"dtype": "String", "dtype_collision_strategy": "NewCol"},
             "another_col": {"dtype": "String", "dtype_collision_strategy": "NewCol"},
-            "sub_id": {"dtype": "I32", "dtype_collision_strategy": "NewCol"},
-            "k": {"dtype": "Object", "dtype_collision_strategy": "Cast"}
+            "sub_id": {"dtype": "I32", "dtype_collision_strategy": "Cast"},
+            "k": {"dtype": "Object", "dtype_collision_strategy": "NewCol", "sub_schema": { "one": "I32"} },
+            "some_vec": {"dtype": "VecString", "dtype_collision_strategy": "NewCol"},
+            "values": {"dtype": "String", "dtype_collision_strategy": "NewCol"}
         }"#;
 
     let schema: CSchema = serde_json::from_str(data).unwrap();
-    let batch_size: usize = 3000;
+    let batch_size: usize = 30_000;
     let mut buffer = vec![];
     let mut cursor = table.find(doc! {}).batch_size(batch_size as u32).await.expect("Could not create a cursor in MongoDB, is the server up?");
 
@@ -149,16 +155,51 @@ pub async fn iter_cols(table: &Collection<Document>, metadata: &mut Metadata) {
         let document = cursor.deserialize_current().unwrap();
         buffer.push(document);
     }
+    let mut df1 = CDataFrame::from_bson_typeless(buffer.clone());
 
-    let mut dataframe = CDataFrame::from_bson(buffer, schema);
-    dataframe = dataframe.select(vec!["k".to_string()]);
+    df1.select(vec!["name".to_string()]).print(None);
+    let mut dataframe = CDataFrame::from_bson(buffer, Some(schema));
     dataframe.print_schema();
+
+    dataframe = dataframe.select(vec![
+        "id".to_string(),
+        "name".to_string(),
+        "name_vecdyn".to_string(),
+        "name_object".to_string(),
+        "name_i32".to_string()
+    ]);
+    dataframe.print(None);
+
+    dataframe = dataframe.select(vec![
+        "id".to_string(),
+        "sub_id".to_string(),
+        "sub_id_str".to_string()
+    ]);
+    dataframe.print(None);
+
+    dataframe = dataframe.select(vec![
+        "id".to_string(),
+        "some_vec".to_string(),
+        "some_vec_i32".to_string()
+    ]
+    );
+
+    dataframe.print(None);
+
+    dataframe = dataframe.select(vec![
+        "id".to_string(),
+        "k".to_string()
+    ]);
+    dataframe.print(None);
+    // dataframe = dataframe.select(vec!["k".to_string()]);
+
+    // dataframe.print();
     // dataframe = dataframe.select(vec![
     //     "id".to_string(),
     //     "_id".to_string(),
     //     "k".to_string()
     // ]);
-    dataframe.print();
+
 
     // print_dataset(&dataframe,
     //               Some(vec![

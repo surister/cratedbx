@@ -6,7 +6,7 @@ use crate::experiment::data::{CValueType, DtypeStrategy};
 pub struct ColumnInfo {
     pub dtype: CValueType,
     pub dtype_collision_strategy: DtypeStrategy,
-    pub sub_schema: Option<HashMap<String, ColumnInfo>>,
+    pub sub_schema: Option<HashMap<String, CValueType>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

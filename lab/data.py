@@ -1,5 +1,8 @@
 import datetime
 import uuid
+import random
+
+import pymongo
 
 array = {
     'id': str(uuid.uuid4()),
@@ -34,7 +37,7 @@ array = {
     'obj': {
         'one': 'two',
         'three': 4,
-        'five': [6,],
+        'five': [6, ],
         'seven': {'eight': 9}
     },
     # Missing geo shape.
@@ -67,22 +70,62 @@ array = {
 }
 
 dirty_structured_arrays = [
-    # {"k": {"one": [1, 2]}},
-    # {"k": {"one": 1}}
+
+    # Object
+    {"k": {"one": [1, 2], "two": "Hi there"}},
+    {"k": {"one": 1, "two": 12345}},
+
+
     {"id": 1, "name": "one", "sub_id": 1},
     {"id": 2, "name": "two", "sub_id": 2},
-    {"id": 3, "name": "three", "surname": "three", "sub_id": 3},
-    {'id': 4, "name": ["four"], "sub_id": 4},
-    {"id": 5, "another": 1, "sub_id": "5"},
-    {"id": 6, "name": {'key': 'six', 'key2': [1, 2, 3, 4]}, "sub_id": "6"},
-    {"id": 7, "name": 3, "sub_id": 7},
-    {"id": 8, "name": ["eight"], "sub_id": "8"},
-    {"id": 9, "sub_id": 9, },
-    {"id": 10, "name": {"key": [1, 2, 3, 4]}},
-    {"id": 11, "name": [1, 2, 3, "4", [1, 2, 3, True]]}
-]
 
-#     {"id": 11, "name": [1, 2, 3, "4", [1, 2, 3, True]]}
+    {"id": 3, "name": "three", "surname": "three", "sub_id": 3},
+                                # ^^^^^^^^^^^^^^ NEW FIELD
+
+    {'id': 4, "name": ["four"], "sub_id": 4},
+              # ^^^^^^^^^^^^ DIFFERENT DATATYPE (IS ARRAY; EXPECTED STRING)
+
+    {"id": 5, "another": 1, "sub_id": "5"},
+                            # ^^^^^^DIFFERENT DATATYPE (IS STRING; EXPECTED INTEGER)
+
+    {"id": 6, "name": {'key': 'six', 'key2': [1, 2, 3, 4]}, "sub_id": "6"},
+              # ^^^^^^^^^^ DIFFERENT DATATYPE (IS OBJECT; EXPECTED STRING)
+
+    {"id": 7, "name": 3, "sub_id": 7},
+
+    {"id": 8, "name": ["eight"], "sub_id": "8"},
+               # ^^^^^^^^^^ DIFFERENT DATATYPE (IS ARRAY; EXPECTED STRING)
+
+    {"id": 9, "sub_id": 9},
+
+    {"id": 10, "some_vec": [1, 2, 3, "4", "5"]}
+               # ^^^^^^^^^^^^^^^ THIS ARRAY IS ILLEGAL, (DIFFERENT TYPES)
+]
+def load_row_to_mongo(row: dict,
+                      uri: str,
+                      table_name: str,
+                      db: str = 'testdb',
+                      buffer: list = None,
+                      how_many: int = 1) -> None:
+    client = pymongo.MongoClient(uri)
+    db = client[db]
+    table = db[table_name]
+    table.insert_many(buffer)
+
+
+    print("ok")
+
+# lorem = "Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. It has survived not only five centuries, but also the leap into electronic typesetting, remaining essentially unchanged. It was popularised in the 1960s with the release of Letraset sheets containing Lorem Ipsum passages, and more recently with desktop publishing software like Aldus PageMaker including versions of Lorem Ipsum."
+# buffer = []
+# for i in range(10000):
+#     values = random.choices([
+#         [1, 2, 3, 4, 5, 6],
+#         ["one", "two", "three", "four"],
+#         {'one': 1, 'two': 2}
+#     ])
+#     buffer.append(dict(id=i, values=values, some_text={"text": lorem}))
+# load_row_to_mongo(row=dict(), uri="mongodb://localhost", buffer=buffer, table_name='longtbl1')
+# {"id": 11, "name": [1, 2, 3, "4", [1, 2, 3, True]]}
 # {
 #   name_str: "4",
 #   name_array: [1,2,3]

@@ -11,7 +11,6 @@ use sqlx::postgres::{PgPoolOptions, PgRow};
 use crate::experiment::data::CValue;
 use crate::metadata::Metadata;
 use crate::sink::cratedb::driver::CrateDB;
-use crate::source::mongodb::driver::{StringRow};
 use crate::source::source::{Sink, Source};
 
 macro_rules! pg2normalized {
@@ -227,10 +226,6 @@ impl Source for PostgresSource {
             };
         };
         return new_row;
-    }
-
-    fn row_to_vec_str(&self, row: Self::RowType) -> Vec<StringRow> {
-        todo!()
     }
 }
 

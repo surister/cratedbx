@@ -1,5 +1,4 @@
 use std::{fmt};
-
 use async_trait::async_trait;
 
 use mongodb::bson::Document;
@@ -10,7 +9,6 @@ use sqlx::{Executor, Pool, Postgres, QueryBuilder, Row};
 use sqlx::postgres::PgPoolOptions;
 use crate::experiment::data::CValue;
 use crate::metadata::Metadata;
-use crate::source::mongodb::driver::{StringRow};
 use crate::source::source::{Sink, Source};
 use crate::utils::get_fqn_table;
 
@@ -33,18 +31,35 @@ impl Sink for CrateDB {
         let stmt = format!("INSERT INTO {} ({}) VALUES ({})",
                            get_fqn_table(&schema, &table_name),
                            columns.join(","),
-                            interpolation
+                           interpolation
         );
         stmt
     }
-
-    async fn send_batch_http(&self, schema: &str, table_name: &str, columns: &Vec<String>, buffer: Vec<Vec<StringRow>>) {
+    fn send_batch_http_sync(&self, schema: &str, table_name: &str, columns: &Vec<String>, buffer: Vec<Vec<CValue>>) {
         let query = self.get_bulk_args_query(&schema, &table_name, &columns);
 
         let body = json!({
            "stmt": query, "bulk_args": &buffer
         });
-        println!("{:?}", body);
+
+
+        let client = reqwest::blocking::Client::new();
+        let res = client.post("http://crate@192.168.88.251:4200/_sql")
+            .json(&body)
+            .send();
+
+        // match res {
+        //     Ok(r) => println!("{:?}", r.status()),
+        //     Err(e) => println!("{:?}", e)
+        // }
+    }
+    async fn send_batch_http(&self, schema: &str, table_name: &str, columns: &Vec<String>, buffer: Vec<Vec<CValue>>) {
+        let query = self.get_bulk_args_query(&schema, &table_name, &columns);
+
+        let body = json!({
+           "stmt": query, "bulk_args": &buffer
+        });
+
 
         let client = reqwest::Client::new();
         let res = client.post("http://crate@192.168.88.251:4200/_sql")
@@ -58,7 +73,6 @@ impl Sink for CrateDB {
     }
     async fn send_batch(&self, schema: &str, table_name: &str, columns: &Vec<String>, buffer: Vec<Vec<CValue>>) {
         let mut query_builder = self.build_insert_values_statement(&schema, &table_name, &columns);
-
         query_builder.push_values(&buffer, |mut separated, x| {
             for value in x {
                 match value {
@@ -75,14 +89,17 @@ impl Sink for CrateDB {
                     CValue::VecI32(v) => separated.push_bind(v),
                     CValue::VecI64(v) => separated.push_bind(v),
                     CValue::VecString(v) => separated.push_bind(v),
-                    _ => separated.push_bind("CVALUE_ERROR_REPORT_CRATEDB")
+                    _ => {
+                        println!("unknown value", );
+                        separated.push_bind("CVALUE_ERROR_REPORT_CRATEDB")
+                    }
                 };
-
             }
         });
+
         let pool = self.get_pool().await.expect("Couldn't connect to CrateDB");
         query_builder.build().execute(&pool).await.expect("Could not send batch");
-    }   
+    }
 }
 
 #[async_trait]
@@ -167,9 +184,6 @@ impl Source for CrateDB {
     async fn row_to_normalized_row(&self, row: Self::RowType) -> Vec<CValue> {
         todo!()
     }
-    fn row_to_vec_str(&self, row: Self::RowType) -> Vec<StringRow> {
-        todo!()
-    }
 }
 
 
@@ -178,3 +192,13 @@ impl fmt::Debug for CrateDB {
         write!(f, "TODO: ADD STRUCT DEFINITION")
     }
 }
+// 1.5MiB/s max avg 33MB memory 128.59s
+// 2.6Mi/s - 40M memory - 16 - 56656 <-
+// 1500 batch - 28M memory - 3.60 MiB/s - 6.3 minutes <- postgres
+// 1500 batch - 29M memory - 3.56 MiB/s - 6.2 minutes <- postgres
+
+
+// ? batch    - 6.7GB      - 2.15 Mib/s - 5.3 minutes <- http - polars
+// ? batch    - 6.7GB      - 2.15 Mib/s - 5.2 minutes  <- http - polars
+
+// spoon ??.??
